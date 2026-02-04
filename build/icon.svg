@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1"/>
+      <stop offset="100%" style="stop-color:#4f46e5"/>
+    </linearGradient>
+    <linearGradient id="brainGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff"/>
+      <stop offset="100%" style="stop-color:#e0e7ff"/>
+    </linearGradient>
+    <linearGradient id="nodeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#c7d2fe"/>
+      <stop offset="100%" style="stop-color:#a5b4fc"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded square -->
+  <rect x="0" y="0" width="1024" height="1024" rx="220" ry="220" fill="url(#bgGrad)"/>
+
+  <!-- Subtle inner shadow/glow -->
+  <rect x="40" y="40" width="944" height="944" rx="190" ry="190" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2"/>
+
+  <!-- Stylized Brain Shape -->
+  <g transform="translate(512, 480)">
+    <!-- Left hemisphere -->
+    <path d="M-180,-180
+             C-280,-180 -320,-80 -320,20
+             C-320,120 -280,200 -180,240
+             C-120,260 -60,260 0,240
+             L0,-180
+             C-60,-200 -120,-200 -180,-180Z"
+          fill="url(#brainGrad)" opacity="0.95"/>
+
+    <!-- Right hemisphere -->
+    <path d="M180,-180
+             C280,-180 320,-80 320,20
+             C320,120 280,200 180,240
+             C120,260 60,260 0,240
+             L0,-180
+             C60,-200 120,-200 180,-180Z"
+          fill="url(#brainGrad)" opacity="0.95"/>
+
+    <!-- Brain folds/gyri - left -->
+    <path d="M-60,-140 Q-140,-100 -180,-20 Q-200,60 -160,140"
+          fill="none" stroke="#6366f1" stroke-width="12" stroke-linecap="round" opacity="0.4"/>
+    <path d="M-40,-80 Q-100,-40 -140,40 Q-160,100 -120,160"
+          fill="none" stroke="#6366f1" stroke-width="10" stroke-linecap="round" opacity="0.3"/>
+    <path d="M-80,-160 Q-180,-120 -220,0"
+          fill="none" stroke="#6366f1" stroke-width="10" stroke-linecap="round" opacity="0.3"/>
+
+    <!-- Brain folds/gyri - right -->
+    <path d="M60,-140 Q140,-100 180,-20 Q200,60 160,140"
+          fill="none" stroke="#6366f1" stroke-width="12" stroke-linecap="round" opacity="0.4"/>
+    <path d="M40,-80 Q100,-40 140,40 Q160,100 120,160"
+          fill="none" stroke="#6366f1" stroke-width="10" stroke-linecap="round" opacity="0.3"/>
+    <path d="M80,-160 Q180,-120 220,0"
+          fill="none" stroke="#6366f1" stroke-width="10" stroke-linecap="round" opacity="0.3"/>
+
+    <!-- Center division -->
+    <line x1="0" y1="-180" x2="0" y2="240" stroke="#6366f1" stroke-width="8" opacity="0.3"/>
+  </g>
+
+  <!-- Neural network nodes and connections -->
+  <g opacity="0.9">
+    <!-- Connection lines -->
+    <line x1="280" y1="340" x2="380" y2="440" stroke="#c7d2fe" stroke-width="6"/>
+    <line x1="744" y1="340" x2="644" y2="440" stroke="#c7d2fe" stroke-width="6"/>
+    <line x1="280" y1="620" x2="380" y2="520" stroke="#c7d2fe" stroke-width="6"/>
+    <line x1="744" y1="620" x2="644" y2="520" stroke="#c7d2fe" stroke-width="6"/>
+    <line x1="380" y1="440" x2="380" y2="520" stroke="#c7d2fe" stroke-width="6"/>
+    <line x1="644" y1="440" x2="644" y2="520" stroke="#c7d2fe" stroke-width="6"/>
+    <line x1="380" y1="480" x2="450" y2="480" stroke="#c7d2fe" stroke-width="6"/>
+    <line x1="644" y1="480" x2="574" y2="480" stroke="#c7d2fe" stroke-width="6"/>
+
+    <!-- Outer nodes -->
+    <circle cx="280" cy="340" r="24" fill="url(#nodeGrad)"/>
+    <circle cx="744" cy="340" r="24" fill="url(#nodeGrad)"/>
+    <circle cx="280" cy="620" r="24" fill="url(#nodeGrad)"/>
+    <circle cx="744" cy="620" r="24" fill="url(#nodeGrad)"/>
+
+    <!-- Inner nodes -->
+    <circle cx="380" cy="440" r="20" fill="#ffffff"/>
+    <circle cx="644" cy="440" r="20" fill="#ffffff"/>
+    <circle cx="380" cy="520" r="20" fill="#ffffff"/>
+    <circle cx="644" cy="520" r="20" fill="#ffffff"/>
+  </g>
+
+  <!-- Magnifying glass / Research symbol -->
+  <g transform="translate(700, 700)">
+    <circle cx="0" cy="0" r="80" fill="none" stroke="#ffffff" stroke-width="24" opacity="0.9"/>
+    <line x1="56" y1="56" x2="120" y2="120" stroke="#ffffff" stroke-width="28" stroke-linecap="round" opacity="0.9"/>
+    <!-- Inner sparkle -->
+    <circle cx="-20" cy="-20" r="20" fill="#ffffff" opacity="0.5"/>
+  </g>
+</svg>
