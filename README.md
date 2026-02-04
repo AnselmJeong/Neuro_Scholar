@@ -1,121 +1,74 @@
-# Prism AI (Open Source Deep Research)
+# Neuro Scholar
 
-**An open-source AI research agent that thinks like a human analyst.**
+Neuro Scholar is an AI-powered academic research assistant designed specifically for psychiatry and neuroscience professionals. It leverages Electron and Ollama Cloud to provide a robust desktop application for research synthesis and academic inquiry.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat-square&logo=typescript&logoColor=white)
-![Next.js](https://img.shields.io/badge/Next.js-black?style=flat-square&logo=next.js&logoColor=white)
-![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
-![Go](https://img.shields.io/badge/Go-00ADD8?style=flat-square&logo=go&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)
+## Features
 
-> **Alternative to:** Perplexity Pro, OpenAI Deep Research.
+- **Academic Literature Search**: Integrated search with PubMed and Google Scholar.
+- **DOI Verification**: Ensures all citations are validated with DOIs.
+- **Professional Reports**: Generates academic-grade reports with appropriate terminology.
+- **Research Mode**: A dedicated pipeline for planning, searching, and synthesizing research topics.
+- **Chat Mode**: Direct conversation with the LLM for general queries.
+- **File Support**: Upload and analyze PDF, Markdown, and Quarto files.
 
----
+## Architecture
 
-## 🚀 Why Prism AI?
+The application is built on the Electron framework (macOS) with a React/Vite renderer and a local SQLite database throughout the main process.
 
-LLMs are great at summaries but bad at **deep research**. They hallucinate, miss key details, and struggle with long-context tasks.
+- **Frontend**: React, Vite, TailwindCSS, Shadcn UI
+- **Backend (Main Process)**: Electron, SQLite (better-sqlite3), Ollama Cloud SDK
+- **AI Inference**: Ollama Cloud
 
-**Prism AI solves this by orchestrating a team of autonomous agents.** Instead of a single inference pass, it uses a **Plan-and-Execute** architecture to:
-1.  **Plan**: Break down a complex query into a structured Table of Contents.
-2.  **Research**: Spawn multiple "Researcher Agents" to search, crawl, and read the web in parallel.
-3.  **Synthesize**: Aggregate findings into a cohesive, cited report.
-4.  **Visualize**: Generate custom charts and diagrams to explain complex data.
-
-## 🎥 Demo
-
-[![▶ Watch Prism AI Demo](https://raw.githubusercontent.com/precious112/Pstore_backend/refs/heads/master/media/media/Screenshot%202026-01-07%20at%2011.36.43%20AM.png)](https://res.cloudinary.com/chopwell/video/upload/v1767778690/prism_ai_1_2_ukywot.mp4)
-
----
-
-## ✨ Key Features
-
-*   **🧠 Plan-and-Execute Pattern**: Uses a `PlanningAgent` to generate a research roadmap before executing.
-*   **⚡ Parallel Execution**: Utilizes Python `asyncio` to run 5+ research agents simultaneously, reducing latency by 80%.
-*   **🔄 LangGraph State Machine**: Agents aren't just chains; they are state machines that can self-correct, loop back, and retry searches if information is missing.
-*   **📊 Dynamic Visualization**: The agent can decide to generate custom React components (charts, diagrams) to better explain its findings.
-*   **🔍 Transparent Sources**: Every claim is cited with a direct link to the source.
-
----
-
-## 🏗️ Architecture
-
-Prism AI is built on a microservices architecture designed for scalability.
-
-```mermaid
-graph TD
-    Input[User Query] --> Planner[Planner Agent]
-    Planner --> Plan[Research Plan / ToC]
-    
-    Plan -->|Parallel Split| Sections{Sections}
-    
-    subgraph Parallel Execution
-        Sections -->|Sec 1| R1[Researcher Agent 1]
-        Sections -->|Sec 2| R2[Researcher Agent 2]
-        Sections -->|Sec N| RN[Researcher Agent N]
-    end
-    
-    R1 --> Agg[Conclusion Agent]
-    R2 --> Agg
-    RN --> Agg
-    
-    Agg --> Report[Final Report Stream]
-```
-
-*   **Core**: Python, LangGraph, LangChain.
-*   **API**: Node.js, Express.
-*   **Frontend**: Next.js, React, Tailwind.
-*   **Real-time**: Go WebSocket Server, Redis.
-
----
-
-## ⚡ Quick Start
-
-Get up and running in minutes using Docker.
+## Getting Started
 
 ### Prerequisites
-*   Docker & Docker Compose
-*   OpenAI API Key
-*   Serper API Key (for Google Search)
+
+- Node.js (LTS recommended)
+- Ollama Cloud API Key
 
 ### Installation
 
-1.  **Clone the repository**
-    ```bash
-    git clone https://github.com/precious112/prism-ai-deep-research.git
-    cd prism-ai-deep-research
-    ```
+1. **Install Dependencies**
+   ```bash
+   npm install
+   cd client && npm install
+   ```
 
-2.  **Set up environment variables**
-    ```bash
-    cp .env.example .env
-    # Edit .env with your API keys
-    ```
+2. **Environment Setup**
+   Create a `.env` file or configure via the Settings UI in the app:
+   ```bash
+   OLLAMA_API_KEY=<your-ollama-cloud-key>
+   ```
 
-3.  **Run with Docker**
-    ```bash
-    docker-compose up --build
-    ```
+### Running Locally
 
-Visit `http://localhost:3000` to start researching.
+Start the Electron app with the Vite dev server:
 
----
+```bash
+npm run dev
+```
 
-## 📚 Documentation
+### Building for Production
 
-For detailed guides on development, deployment, and architecture, visit the [docs](./docs) directory.
+Build and package the application for macOS (.dmg):
 
-*   [**Installation Guide**](./docs/01-getting-started/02-installation.md) - Full setup instructions.
-*   [**Architecture Deep Dive**](./docs/02-architecture/01-overview.md) - How the agents work internally.
-*   [**Development Workflow**](./docs/03-guides/01-development-workflow.md) - How to contribute.
+```bash
+npm run build
+npm run package:mac
+```
 
----
+## Usage
 
-## 🤝 Contributing
+### Research Mode
+1. Enter your research query (e.g., "Efficacy of TMS in TRD").
+2. The Planning Agent creates a table of contents.
+3. The system searches PubMed (primary) and Google Scholar (fallback) for relevant literature.
+4. A Synthesis Agent compiles a report with inline DOI citations.
 
-We welcome contributions! Please see our [Development Workflow](./docs/03-guides/01-development-workflow.md) to get started.
+### Chat Mode
+Standard chat interface for interacting with the LLM without the rigorous academic search pipeline.
 
-## 📄 License
+## Structure
 
-Distributed under the MIT License. See `LICENSE` for more information.
+- `/electron` - Main process code (DB, Ollama service, Research pipeline)
+- `/client` - Renderer process code (React app, Components, Stores)

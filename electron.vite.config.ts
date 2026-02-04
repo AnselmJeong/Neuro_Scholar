@@ -33,9 +33,9 @@ export default defineConfig({
     },
   },
   renderer: {
-    root: 'client',
+    root: resolve(__dirname, 'client'),
     build: {
-      outDir: '../dist',
+      outDir: resolve(__dirname, 'dist'),
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'client/index.html'),
