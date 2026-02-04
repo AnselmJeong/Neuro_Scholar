@@ -5,7 +5,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useChatStore, Chat } from '@/store/useChatStore';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Plus, MessageSquare, MoreHorizontal, Pencil, Trash, X, Check, Search } from 'lucide-react';
+import { Plus, MessageSquare, MoreHorizontal, Pencil, Trash, X, Check, Search, Settings } from 'lucide-react';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
@@ -34,6 +35,7 @@ export function ChatSidebar({ className, onSelect }: ChatSidebarProps) {
   const activeChatId = params?.chatId as string;
 
   const { chats, fetchChats, createChat, deleteChat, updateChat } = useChatStore();
+  const { setSettingsOpen } = useSettingsStore();
   const [loading, setLoading] = useState(false);
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [deleteChatId, setDeleteChatId] = useState<string | null>(null);
@@ -106,9 +108,12 @@ export function ChatSidebar({ className, onSelect }: ChatSidebarProps) {
   };
 
   return (
-    <div className={cn("pb-12 h-full border-r bg-background", className)}>
-      <div className="space-y-4 py-4 h-full flex flex-col">
-        <div className="px-3 py-2">
+    <div className={cn("h-full border-r bg-background flex flex-col", className)}>
+      {/* Top padding for macOS traffic lights */}
+      <div className="h-12 shrink-0" />
+
+      <div className="space-y-4 flex-1 flex flex-col overflow-hidden">
+        <div className="px-3">
           <Button onClick={handleNewChat} disabled={loading} className="w-full justify-start gap-2">
             <Plus className="h-4 w-4" />
             New Research
@@ -205,6 +210,18 @@ export function ChatSidebar({ className, onSelect }: ChatSidebarProps) {
             </div>
           </ScrollArea>
         </div>
+      </div>
+
+      {/* Settings Button */}
+      <div className="px-3 py-3 border-t">
+        <Button
+          variant="ghost"
+          className="w-full justify-start gap-2"
+          onClick={() => setSettingsOpen(true)}
+        >
+          <Settings className="h-4 w-4" />
+          Settings
+        </Button>
       </div>
 
       <Dialog open={!!deleteChatId} onOpenChange={(open) => !open && setDeleteChatId(null)}>

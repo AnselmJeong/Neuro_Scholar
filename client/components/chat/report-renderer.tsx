@@ -1,13 +1,15 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
-import { Link as LinkIcon, Maximize2 } from 'lucide-react';
+import { Link as LinkIcon, Maximize2, Download } from 'lucide-react';
 import { CodeExecutor } from '@/components/chat/code-executor';
 import { Dialog, DialogContent, DialogTrigger, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 
 interface ReportRendererProps {
   content: string;
+  showExport?: boolean;
+  title?: string;
 }
 
 interface Source {
@@ -28,21 +30,111 @@ interface Section {
   sources: Source[];
 }
 
-export function ReportRenderer({ content }: ReportRendererProps) {
+// Convert DOI references to clickable links
+function convertDoiToLinks(text: string): string {
+  // Match patterns like (DOI: 10.xxxx/xxxxx) or DOI: 10.xxxx/xxxxx
+  const doiPattern = /\(DOI:\s*(10\.[^\s\)]+)\)|DOI:\s*(10\.[^\s,\)]+)/gi;
+  return text.replace(doiPattern, (match, doi1, doi2) => {
+    const doi = doi1 || doi2;
+    const url = `https://doi.org/${doi}`;
+    if (match.startsWith('(')) {
+      return `([DOI: ${doi}](${url}))`;
+    }
+    return `[DOI: ${doi}](${url})`;
+  });
+}
+
+// Convert content to clean markdown for export
+function contentToMarkdown(content: string, title?: string): string {
+  let markdown = '';
+
+  if (title) {
+    markdown += `# ${title}\n\n`;
+  }
+
+  const sections = parseXML(content);
+
+  if (!sections.length && content) {
+    // Raw content without sections
+    return markdown + convertDoiToLinks(content);
+  }
+
+  for (const section of sections) {
+    if (section.title) {
+      markdown += `## ${section.title}\n\n`;
+    }
+
+    for (const part of section.parts) {
+      if (part.type === 'text' && part.content) {
+        markdown += convertDoiToLinks(part.content) + '\n\n';
+      } else if (part.type === 'code' && part.content) {
+        markdown += '```\n' + part.content + '\n```\n\n';
+      } else if (part.type === 'image' && part.url) {
+        markdown += `![${part.title || 'Image'}](${part.url})\n\n`;
+      }
+    }
+
+    if (section.sources.length > 0) {
+      markdown += '### Sources\n\n';
+      for (const source of section.sources) {
+        markdown += `- [${source.title}](${source.url})\n`;
+      }
+      markdown += '\n';
+    }
+  }
+
+  return markdown;
+}
+
+export function ReportRenderer({ content, showExport = false, title }: ReportRendererProps) {
   const sections = useMemo(() => parseXML(content), [content]);
+
+  // Process content to convert DOI links
+  const processedContent = useMemo(() => convertDoiToLinks(content), [content]);
+
+  const handleExport = useCallback(() => {
+    const markdown = contentToMarkdown(content, title);
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${title || 'research-report'}-${new Date().toISOString().split('T')[0]}.md`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [content, title]);
 
   if (!sections.length && content) {
     // Fallback if parsing fails or no sections yet but there is content
     // This might happen if the model outputs raw text before the first section
     return (
-      <div className="prose prose-zinc dark:prose-invert max-w-none text-foreground/90">
-         <ReactMarkdown rehypePlugins={[rehypeRaw]}>{content}</ReactMarkdown>
+      <div>
+        {showExport && (
+          <div className="flex justify-end mb-4">
+            <Button variant="outline" size="sm" onClick={handleExport} className="gap-2">
+              <Download className="h-4 w-4" />
+              Export Markdown
+            </Button>
+          </div>
+        )}
+        <div className="prose prose-zinc dark:prose-invert max-w-none text-foreground/90">
+           <ReactMarkdown rehypePlugins={[rehypeRaw]}>{processedContent}</ReactMarkdown>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
+      {showExport && sections.length > 0 && (
+        <div className="flex justify-end">
+          <Button variant="outline" size="sm" onClick={handleExport} className="gap-2">
+            <Download className="h-4 w-4" />
+            Export Markdown
+          </Button>
+        </div>
+      )}
       {sections.map((section, idx) => (
         <div key={idx} className="group">
           {section.title && (
@@ -56,7 +148,7 @@ export function ReportRenderer({ content }: ReportRendererProps) {
                if (part.type === 'text') {
                  return (
                    <div key={pIdx} className="prose prose-zinc dark:prose-invert max-w-none text-foreground/90 leading-relaxed break-words overflow-x-auto">
-                     <ReactMarkdown 
+                     <ReactMarkdown
                         rehypePlugins={[rehypeRaw]}
                         components={{
                           // Custom link rendering to open in new tab
@@ -65,7 +157,7 @@ export function ReportRenderer({ content }: ReportRendererProps) {
                           ),
                         }}
                      >
-                        {part.content || ''}
+                        {convertDoiToLinks(part.content || '')}
                      </ReactMarkdown>
                    </div>
                  );

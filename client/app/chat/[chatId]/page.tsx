@@ -27,6 +27,7 @@ import { SourceCarousel } from '@/components/chat/source-carousel';
 import { ReportRenderer } from '@/components/chat/report-renderer';
 import { ResearchControls } from '@/components/research-controls';
 import { ChatModeToggle } from '@/components/chat-mode-toggle';
+import { LanguageToggle } from '@/components/language-toggle';
 import { FileUpload } from '@/components/file-upload';
 import { useToast } from '@/hooks/use-toast';
 
@@ -43,6 +44,7 @@ export default function ChatPage() {
     setSelectedModel,
     availableModels,
     chatMode,
+    reportLanguage,
     isOllamaInitialized,
   } = useSettingsStore();
 
@@ -86,11 +88,7 @@ export default function ChatPage() {
     if (!input.trim() || sending) return;
 
     if (!isOllamaInitialized) {
-      toast({
-        title: 'Ollama Not Connected',
-        description: 'Please configure your Ollama API key in Settings.',
-        variant: 'destructive',
-      });
+      toast('Please configure your Ollama API key in Settings.', 'error');
       return;
     }
 
@@ -113,6 +111,7 @@ export default function ChatPage() {
           chatId,
           query: content,
           model: selectedModel,
+          language: reportLanguage,
         });
         startResearch(sessionId);
       } else {
@@ -133,11 +132,7 @@ export default function ChatPage() {
       }
     } catch (error: any) {
       console.error('Failed to send message', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to send message.',
-        variant: 'destructive',
-      });
+      toast(error.message || 'Failed to send message.', 'error');
     } finally {
       setSending(false);
     }
@@ -206,7 +201,7 @@ export default function ChatPage() {
                     {msg.role === 'user' ? (
                       <div className="whitespace-pre-wrap">{msg.content}</div>
                     ) : (
-                      <ReportRenderer content={msg.content} />
+                      <ReportRenderer content={msg.content} showExport={true} title="Research Report" />
                     )}
                   </div>
                 </div>
@@ -293,6 +288,7 @@ export default function ChatPage() {
             <div className="flex justify-between items-center mt-3 pt-2">
               <div className="flex items-center gap-2 flex-wrap">
                 <ChatModeToggle />
+                <LanguageToggle />
 
                 <Select value={selectedModel} onValueChange={handleModelChange}>
                   <SelectTrigger className="h-8 border-0 shadow-none focus:ring-0 w-auto gap-2 px-2 text-muted-foreground hover:text-foreground bg-transparent hover:bg-muted/50 rounded-md transition-colors">

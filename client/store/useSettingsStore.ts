@@ -17,6 +17,8 @@ interface OllamaModel {
   };
 }
 
+export type ReportLanguage = 'en' | 'ko';
+
 interface SettingsState {
   // Ollama settings
   ollamaApiKey: string;
@@ -26,6 +28,9 @@ interface SettingsState {
 
   // Chat mode
   chatMode: 'research' | 'chat';
+
+  // Report language
+  reportLanguage: ReportLanguage;
 
   // UI state
   isSettingsOpen: boolean;
@@ -37,6 +42,7 @@ interface SettingsState {
   fetchModels: () => Promise<void>;
   checkOllamaStatus: () => Promise<void>;
   setChatMode: (mode: 'research' | 'chat') => void;
+  setReportLanguage: (lang: ReportLanguage) => void;
   setSettingsOpen: (open: boolean) => void;
 
   // Initialize from IPC on app start
@@ -52,6 +58,7 @@ export const useSettingsStore = create<SettingsState>()(
       availableModels: [],
       isOllamaInitialized: false,
       chatMode: 'research',
+      reportLanguage: 'en',
       isSettingsOpen: false,
       isLoadingModels: false,
 
@@ -103,6 +110,11 @@ export const useSettingsStore = create<SettingsState>()(
         set({ chatMode: mode });
       },
 
+      // Set report language
+      setReportLanguage: (lang: ReportLanguage) => {
+        set({ reportLanguage: lang });
+      },
+
       // Set settings dialog open state
       setSettingsOpen: (open: boolean) => {
         set({ isSettingsOpen: open });
@@ -134,6 +146,7 @@ export const useSettingsStore = create<SettingsState>()(
         ollamaApiKey: state.ollamaApiKey,
         selectedModel: state.selectedModel,
         chatMode: state.chatMode,
+        reportLanguage: state.reportLanguage,
       }),
     }
   )

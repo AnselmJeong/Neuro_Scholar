@@ -63,17 +63,10 @@ export function FileUpload({ chatId, onFilesChange }: FileUploadProps) {
         setFiles(updatedFiles);
         onFilesChange?.(updatedFiles);
 
-        toast({
-          title: "File Uploaded",
-          description: `${result.filename} has been added as reference material.`,
-        });
+        toast(`${result.filename} has been added as reference material.`, 'success');
       }
     } catch (error: any) {
-      toast({
-        title: "Upload Failed",
-        description: error.message || "Failed to upload file.",
-        variant: "destructive",
-      });
+      toast(error.message || "Failed to upload file.", 'error');
     } finally {
       setIsUploading(false);
     }
@@ -86,16 +79,9 @@ export function FileUpload({ chatId, onFilesChange }: FileUploadProps) {
       setFiles(updatedFiles);
       onFilesChange?.(updatedFiles);
 
-      toast({
-        title: "File Removed",
-        description: "Reference file has been removed.",
-      });
+      toast("Reference file has been removed.", 'info');
     } catch (error: any) {
-      toast({
-        title: "Delete Failed",
-        description: error.message || "Failed to remove file.",
-        variant: "destructive",
-      });
+      toast(error.message || "Failed to remove file.", 'error');
     }
   };
 

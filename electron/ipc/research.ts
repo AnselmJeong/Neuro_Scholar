@@ -8,8 +8,8 @@ export function registerResearchHandlers(ipcMain: IpcMain): void {
   // Start a new research session
   ipcMain.handle(
     'research:start',
-    async (_event, payload: { chatId: string; query: string; model: string }) => {
-      const { chatId, query, model } = payload;
+    async (_event, payload: { chatId: string; query: string; model: string; language?: 'en' | 'ko' }) => {
+      const { chatId, query, model, language = 'en' } = payload;
 
       // Save user message
       const messageId = require('uuid').v4();
@@ -21,7 +21,7 @@ export function registerResearchHandlers(ipcMain: IpcMain): void {
       ).run(messageId, chatId, query, now);
 
       // Start research
-      const sessionId = await researchOrchestrator.startResearch(chatId, query, model);
+      const sessionId = await researchOrchestrator.startResearch(chatId, query, model, language);
 
       return sessionId;
     }

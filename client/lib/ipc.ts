@@ -44,7 +44,7 @@ export const ollamaApi = {
  * Research API
  */
 export const researchApi = {
-  start: async (payload: { chatId: string; query: string; model: string }) => {
+  start: async (payload: { chatId: string; query: string; model: string; language?: 'en' | 'ko' }) => {
     return getAPI().research.start(payload);
   },
 

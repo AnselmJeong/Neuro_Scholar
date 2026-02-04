@@ -45,23 +45,13 @@ export function ResearchControls({
     try {
       if (status === "paused") {
         await researchApi.resume(sessionId);
-        toast({
-          title: "Research Resumed",
-          description: "Research will continue from where it left off.",
-        });
+        toast("Research will continue from where it left off.", 'success');
       } else {
         await researchApi.pause(sessionId);
-        toast({
-          title: "Research Paused",
-          description: "Research has been paused. You can resume at any time.",
-        });
+        toast("Research has been paused. You can resume at any time.", 'info');
       }
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to pause/resume research.",
-        variant: "destructive",
-      });
+      toast(error.message || "Failed to pause/resume research.", 'error');
     } finally {
       setIsLoading(false);
     }
@@ -71,16 +61,9 @@ export function ResearchControls({
     setIsLoading(true);
     try {
       await researchApi.cancel(sessionId);
-      toast({
-        title: "Research Cancelled",
-        description: "Research has been cancelled.",
-      });
+      toast("Research has been cancelled.", 'info');
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to cancel research.",
-        variant: "destructive",
-      });
+      toast(error.message || "Failed to cancel research.", 'error');
     } finally {
       setIsLoading(false);
     }
@@ -97,16 +80,9 @@ export function ResearchControls({
       await researchApi.updateQuery(sessionId, newQuery);
       onQueryUpdated?.(newQuery);
       setShowQueryDialog(false);
-      toast({
-        title: "Query Updated",
-        description: "Please restart the research with the new query.",
-      });
+      toast("Please restart the research with the new query.", 'success');
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update query.",
-        variant: "destructive",
-      });
+      toast(error.message || "Failed to update query.", 'error');
     } finally {
       setIsUpdatingQuery(false);
     }

@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from '@/components/ui/toaster';
 import { SettingsDialog } from '@/components/settings-dialog';
+import { TitleBar } from '@/components/title-bar';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useResearchEvents } from '@/hooks/use-research-events';
 import '@/app/globals.css';
@@ -32,30 +33,46 @@ function App() {
   return (
     <BrowserRouter>
       <AppWrapper>
-        <Routes>
-          {/* Redirect root to chat */}
-          <Route path="/" element={<Navigate to="/chat" replace />} />
+        <div className="h-screen flex flex-col bg-background">
+          {/* Draggable title bar */}
+          <TitleBar />
 
-          {/* Chat routes */}
-          <Route path="/chat" element={<ChatLayout />}>
-            <Route index element={<ChatPage />} />
-            <Route path=":chatId" element={<ChatDetailPage />} />
-          </Route>
+          {/* Main content area */}
+          <div className="flex-1 overflow-hidden">
+            <Routes>
+              {/* Redirect root to chat */}
+              <Route path="/" element={<Navigate to="/chat" replace />} />
 
-          {/* Catch-all redirect */}
-          <Route path="*" element={<Navigate to="/chat" replace />} />
-        </Routes>
+              {/* Chat routes */}
+              <Route path="/chat" element={<ChatLayout />}>
+                <Route index element={<ChatPage />} />
+                <Route path=":chatId" element={<ChatDetailPage />} />
+              </Route>
 
-        {/* Global components */}
-        <SettingsDialog />
-        <Toaster />
+              {/* Catch-all redirect */}
+              <Route path="*" element={<Navigate to="/chat" replace />} />
+            </Routes>
+          </div>
+
+          {/* Global components */}
+          <SettingsDialog />
+          <Toaster />
+        </div>
       </AppWrapper>
     </BrowserRouter>
   );
 }
 
-// Mount the app
-const root = ReactDOM.createRoot(document.getElementById('root')!);
+// Mount the app - handle HMR by reusing existing root
+const container = document.getElementById('root')!;
+
+// Store root on the container to reuse during HMR
+let root = (container as any)._reactRoot;
+if (!root) {
+  root = ReactDOM.createRoot(container);
+  (container as any)._reactRoot = root;
+}
+
 root.render(
   <React.StrictMode>
     <App />

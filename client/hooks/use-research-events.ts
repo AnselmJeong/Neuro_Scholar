@@ -40,6 +40,7 @@ export function useResearchEvents() {
           if (update.data?.toc) {
             setResearchPlan(
               update.data.toc.map((title: string, index: number) => ({
+                id: index,
                 title,
                 status: index === 0 ? 'in_progress' : 'pending',
               }))
@@ -81,35 +82,22 @@ export function useResearchEvents() {
 
         case 'completed':
           completeResearch();
-          toast({
-            title: 'Research Complete',
-            description: 'Your research report is ready.',
-          });
+          toast('Your research report is ready.', 'success');
           break;
 
         case 'paused':
           updateResearchStatus('idle', 'Research paused');
-          toast({
-            title: 'Research Paused',
-            description: update.message || 'Research has been paused.',
-          });
+          toast(update.message || 'Research has been paused.', 'info');
           break;
 
         case 'cancelled':
           resetResearch();
-          toast({
-            title: 'Research Cancelled',
-            description: update.message || 'Research has been cancelled.',
-          });
+          toast(update.message || 'Research has been cancelled.', 'info');
           break;
 
         case 'error':
           updateResearchStatus('error', update.message || 'An error occurred');
-          toast({
-            title: 'Research Error',
-            description: update.message || 'An error occurred during research.',
-            variant: 'destructive',
-          });
+          toast(update.message || 'An error occurred during research.', 'error');
           break;
 
         default:

@@ -1,11 +1,17 @@
 import type { Config } from "tailwindcss";
+import { fileURLToPath } from "url";
+import { dirname, resolve } from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const config: Config = {
     darkMode: ["class"],
     content: [
-    "./app/**/*.{js,ts,jsx,tsx,mdx}",
-    "./pages/**/*.{js,ts,jsx,tsx,mdx}",
-    "./components/**/*.{js,ts,jsx,tsx,mdx}",
+    resolve(__dirname, "./app/**/*.{js,ts,jsx,tsx,mdx}"),
+    resolve(__dirname, "./pages/**/*.{js,ts,jsx,tsx,mdx}"),
+    resolve(__dirname, "./components/**/*.{js,ts,jsx,tsx,mdx}"),
+    resolve(__dirname, "./src/**/*.{js,ts,jsx,tsx,mdx}"),
   ],
   theme: {
   	extend: {
@@ -65,6 +71,9 @@ const config: Config = {
   			lg: 'var(--radius)',
   			md: 'calc(var(--radius) - 2px)',
   			sm: 'calc(var(--radius) - 4px)'
+  		},
+  		outlineColor: {
+  			ring: 'var(--ring)'
   		}
   	}
   },
