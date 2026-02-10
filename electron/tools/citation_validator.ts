@@ -16,6 +16,13 @@ export interface BibliographicInfo {
   isValid: boolean;
 }
 
+export interface ReferenceFallbackInfo {
+  authors?: string[];
+  year?: number;
+  title?: string;
+  journal?: string;
+}
+
 // DOI regex pattern
 const DOI_REGEX = /10\.\d{4,}\/[^\s<>")\]]+/g;
 
@@ -92,7 +99,7 @@ export async function fetchBibliographicInfo(doi: string): Promise<Bibliographic
       return null;
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
 
     // Extract authors
     const authors: string[] = (data.authors || [])
@@ -176,25 +183,44 @@ export async function validateDois(dois: string[]): Promise<Map<string, Bibliogr
 }
 
 /**
- * Build citation link text as "FirstAuthor, Year, Title"
+ * Build Chicago author-date citation label text.
+ * Examples: "Smith 2024", "Smith and Park 2024", "Smith et al. 2024"
  */
 function formatCitationLinkText(bibInfo: BibliographicInfo): string {
-  const firstAuthor = bibInfo.authors.length > 0 ? getLastName(bibInfo.authors[0]) : 'Unknown';
   const year = bibInfo.year > 0 ? String(bibInfo.year) : 'n.d.';
-  const title = (bibInfo.title || 'Untitled').replace(/\s+/g, ' ').trim();
+  if (bibInfo.authors.length === 0) return `Unknown ${year}`;
 
-  // Escape square brackets so markdown link labels stay valid.
-  const safeTitle = title.replace(/\[/g, '\\[').replace(/\]/g, '\\]');
-  return `${firstAuthor}, ${year}, ${safeTitle}`;
+  const firstAuthor = getLastName(bibInfo.authors[0]);
+  if (bibInfo.authors.length === 1) {
+    return `${firstAuthor} ${year}`;
+  }
+
+  if (bibInfo.authors.length === 2) {
+    const secondAuthor = getLastName(bibInfo.authors[1]);
+    return `${firstAuthor} and ${secondAuthor} ${year}`;
+  }
+
+  return `${firstAuthor} et al. ${year}`;
+}
+
+function formatFallbackCitationLabel(doi: string): string {
+  const compactDoi = doi.length > 35 ? `${doi.slice(0, 32)}...` : doi;
+  return compactDoi;
 }
 
 /**
  * Format inline citation as a markdown DOI link.
- * Example output: "([Smith, 2024, Paper Title](https://doi.org/10.xxxx/xxxxx))"
+ * Example output: "([Smith et al. 2024](https://doi.org/10.xxxx/xxxxx))"
  */
 function formatInlineCitationAsLink(bibInfo: BibliographicInfo): string {
   const label = formatCitationLinkText(bibInfo);
   const url = `https://doi.org/${encodeURIComponent(bibInfo.doi)}`;
+  return `([${label}](${url}))`;
+}
+
+function formatInlineDoiOnlyCitation(doi: string): string {
+  const label = formatFallbackCitationLabel(doi);
+  const url = `https://doi.org/${encodeURIComponent(doi)}`;
   return `([${label}](${url}))`;
 }
 
@@ -245,8 +271,8 @@ export async function processReportCitations(content: string): Promise<{
       if (bibInfo) {
         return formatInlineCitationAsLink(bibInfo);
       }
-      // Keep original if not validated
-      return match;
+      // Keep a DOI link even when metadata validation fails.
+      return formatInlineDoiOnlyCitation(cleanDoi);
     });
   }
 
@@ -260,7 +286,7 @@ export async function processReportCitations(content: string): Promise<{
         const label = formatCitationLinkText(bibInfo);
         return `[${label}](https://doi.org/${encodeURIComponent(bibInfo.doi)})`;
       }
-      return match;
+      return formatInlineDoiOnlyCitation(cleanDoi);
     }
   );
 
@@ -271,24 +297,33 @@ export async function processReportCitations(content: string): Promise<{
  * Generate formatted references section
  */
 export function generateReferencesSection(
+  citedDois: string[],
   validatedDois: Map<string, BibliographicInfo>,
+  fallbackByDoi: Map<string, ReferenceFallbackInfo> = new Map(),
   language: 'en' | 'ko' = 'en'
 ): string {
   const title = language === 'ko' ? '## 참고문헌' : '## References';
 
-  // Sort by author name, then year
-  const sortedRefs = Array.from(validatedDois.values()).sort((a, b) => {
-    const authorCompare = a.authorShort.localeCompare(b.authorShort);
-    if (authorCompare !== 0) return authorCompare;
-    return a.year - b.year;
-  });
+  const uniqueCitedDois = [...new Set(citedDois)];
 
-  const refLines = sortedRefs.map(ref => {
-    const authorsStr = ref.authors.length > 0
-      ? ref.authors.slice(0, 3).join(', ') + (ref.authors.length > 3 ? ', et al.' : '')
+  const refLines = uniqueCitedDois.map((doi) => {
+    const validated = validatedDois.get(doi);
+    if (validated) {
+      const authorsStr = validated.authors.length > 0
+        ? validated.authors.slice(0, 3).join(', ') + (validated.authors.length > 3 ? ', et al.' : '')
+        : 'Unknown';
+      const yearStr = validated.year > 0 ? String(validated.year) : 'n.d.';
+      return `- ${authorsStr}. ${yearStr}. ${validated.title || 'Untitled'}. *${validated.journal || 'Unknown Journal'}*. [DOI: ${validated.doi}](https://doi.org/${encodeURIComponent(validated.doi)})`;
+    }
+
+    const fallback = fallbackByDoi.get(doi);
+    const authorsStr = fallback?.authors && fallback.authors.length > 0
+      ? fallback.authors.slice(0, 3).join(', ') + (fallback.authors.length > 3 ? ', et al.' : '')
       : 'Unknown';
-
-    return `- ${authorsStr} (${ref.year}). ${ref.title}. *${ref.journal}*. [DOI: ${ref.doi}](https://doi.org/${encodeURIComponent(ref.doi)})`;
+    const yearStr = fallback?.year && fallback.year > 0 ? String(fallback.year) : 'n.d.';
+    const titleStr = fallback?.title || 'Untitled';
+    const journalStr = fallback?.journal || 'Unknown Journal';
+    return `- ${authorsStr}. ${yearStr}. ${titleStr}. *${journalStr}*. [DOI: ${doi}](https://doi.org/${encodeURIComponent(doi)})`;
   });
 
   return `${title}\n\n${refLines.join('\n\n')}\n`;

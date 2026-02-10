@@ -72,7 +72,7 @@ export class AcademicSearchTool {
       throw new Error(`PubMed search failed: ${searchResponse.status}`);
     }
 
-    const searchData = await searchResponse.json();
+    const searchData: any = await searchResponse.json();
     const pmids: string[] = searchData.esearchresult?.idlist || [];
 
     if (pmids.length === 0) {
@@ -90,7 +90,7 @@ export class AcademicSearchTool {
       throw new Error(`PubMed summary failed: ${summaryResponse.status}`);
     }
 
-    const summaryData = await summaryResponse.json();
+    const summaryData: any = await summaryResponse.json();
     const results: AcademicSource[] = [];
 
     for (const pmid of pmids) {
@@ -153,7 +153,7 @@ export class AcademicSearchTool {
 
       try {
         const response = await fetch(searchUrl.toString());
-        const data = await response.json();
+        const data: any = await response.json();
         const ids = data.esearchresult?.idlist || [];
         if (ids.length > 0) {
           pmids.push(ids[0]);

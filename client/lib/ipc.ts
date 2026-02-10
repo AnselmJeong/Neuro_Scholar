@@ -4,7 +4,7 @@
  */
 
 // Type imports from electron API
-import type { ElectronAPI } from '../../electron/preload';
+import type { ElectronAPI } from '@/types/electron-api';
 
 // Get the exposed API from preload
 const getAPI = (): ElectronAPI => {

@@ -11,7 +11,9 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noEmit": true,
+    "composite": true,
+    "incremental": true,
+    "declaration": true,
     "baseUrl": ".",
     "paths": {
       "@/*": ["./client/*"]
@@ -20,5 +22,10 @@
   "include": [
     "client/**/*.ts",
     "client/**/*.tsx"
+  ],
+  "exclude": [
+    "client/app/layout.tsx",
+    "client/app/page.tsx",
+    "client/next.config.ts"
   ]
 }

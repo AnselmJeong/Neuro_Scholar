@@ -14,7 +14,7 @@
     "package:mac": "electron-builder --mac",
     "package:dmg": "electron-builder --mac dmg",
     "postinstall": "electron-builder install-app-deps",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -b --noEmit",
     "lint": "eslint . --ext .ts,.tsx"
   },
   "dependencies": {

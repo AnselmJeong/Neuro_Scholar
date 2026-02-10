@@ -71,7 +71,13 @@ export const ollamaService = {
 
     try {
       const response = await client.list();
-      return (response.models || []) as OllamaModel[];
+      return (response.models || []).map((model: any) => ({
+        ...model,
+        modified_at:
+          typeof model.modified_at === 'string'
+            ? model.modified_at
+            : new Date(model.modified_at).toISOString(),
+      })) as OllamaModel[];
     } catch (error) {
       console.error('[OllamaService] Error fetching models:', error);
       return [];

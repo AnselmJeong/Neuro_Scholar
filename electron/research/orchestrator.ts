@@ -5,7 +5,8 @@ import { AcademicSearchTool } from '../tools/academic_search';
 import {
   processReportCitations,
   generateReferencesSection,
-  BibliographicInfo,
+  extractDoisFromText,
+  ReferenceFallbackInfo,
 } from '../tools/citation_validator';
 import {
   ResearchPlan,
@@ -588,29 +589,28 @@ IMPORTANT: Only use DOIs from the list above. Do not fabricate DOIs.`;
       // Use processed content with author/year added
       reportContent = processedContent;
 
-      // Generate proper References section with validated bibliographic info
-      if (validatedDois.size > 0) {
-        const referencesSection = generateReferencesSection(validatedDois, language);
-        reportContent += referencesSection;
-
-        this.sendUpdate({ event_type: 'report_chunk', data: { chunk: referencesSection, final: true } });
-      } else {
-        // Fallback: use original sources if validation failed
-        const referencesTitle = language === 'ko' ? '## 참고문헌' : '## References';
-        let referencesContent = `${referencesTitle}\n\n`;
-        const uniqueDois = [...new Set(allSources.map((s) => s.doi))];
-        for (const doi of uniqueDois) {
-          const source = allSources.find((s) => s.doi === doi);
-          if (source) {
-            const authorsStr = source.authors.length > 0
-              ? source.authors.slice(0, 3).join(', ') + (source.authors.length > 3 ? ', et al.' : '')
-              : 'Unknown';
-            referencesContent += `- ${authorsStr} (${source.year}). ${source.title}. *${source.journal}*. [DOI: ${doi}](https://doi.org/${encodeURIComponent(doi)})\n\n`;
-          }
+      // Build references from DOIs actually cited in the report body.
+      const citedDois = extractDoisFromText(reportContent);
+      const fallbackByDoi = new Map<string, ReferenceFallbackInfo>();
+      for (const source of allSources) {
+        if (!fallbackByDoi.has(source.doi)) {
+          fallbackByDoi.set(source.doi, {
+            authors: source.authors,
+            year: source.year,
+            title: source.title,
+            journal: source.journal,
+          });
         }
-        reportContent += referencesContent;
-        this.sendUpdate({ event_type: 'report_chunk', data: { chunk: referencesContent, final: true } });
       }
+
+      const referencesSection = generateReferencesSection(
+        citedDois,
+        validatedDois,
+        fallbackByDoi,
+        language
+      );
+      reportContent += referencesSection;
+      this.sendUpdate({ event_type: 'report_chunk', data: { chunk: referencesSection, final: true } });
 
       // Store validation metadata
       this.activeSession!.sources = allSources.map(s => ({
@@ -620,16 +620,20 @@ IMPORTANT: Only use DOIs from the list above. Do not fabricate DOIs.`;
 
     } catch (error) {
       console.error('[Research] Citation validation error:', error);
-      // Fallback: use original sources
-      const referencesTitle = language === 'ko' ? '## 참고문헌' : '## References';
-      let referencesContent = `${referencesTitle}\n\n`;
-      const uniqueDois = [...new Set(allSources.map((s) => s.doi))];
-      for (const doi of uniqueDois) {
-        const source = allSources.find((s) => s.doi === doi);
-        if (source) {
-          referencesContent += `- ${source.title}. ${source.journal} (${source.year}). [DOI: ${doi}](https://doi.org/${encodeURIComponent(doi)})\n\n`;
+      // Fallback: still ensure all in-text DOI citations are listed in References.
+      const citedDois = extractDoisFromText(reportContent);
+      const fallbackByDoi = new Map<string, ReferenceFallbackInfo>();
+      for (const source of allSources) {
+        if (!fallbackByDoi.has(source.doi)) {
+          fallbackByDoi.set(source.doi, {
+            authors: source.authors,
+            year: source.year,
+            title: source.title,
+            journal: source.journal,
+          });
         }
       }
+      const referencesContent = generateReferencesSection(citedDois, new Map(), fallbackByDoi, language);
       reportContent += referencesContent;
       this.sendUpdate({ event_type: 'report_chunk', data: { chunk: referencesContent, final: true } });
     }
