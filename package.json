@@ -10,9 +10,9 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "package": "electron-builder",
-    "package:mac": "electron-builder --mac",
-    "package:dmg": "electron-builder --mac dmg",
+    "package": "npm run build && electron-builder",
+    "package:mac": "npm run build && electron-builder --mac",
+    "package:dmg": "npm run build && electron-builder --mac dmg",
     "postinstall": "electron-builder install-app-deps",
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint . --ext .ts,.tsx"
