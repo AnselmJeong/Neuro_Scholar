@@ -34,10 +34,11 @@ function getSemanticScholarApiKey(): string {
 
 /**
  * Check if citation validation is enabled in settings
- * Default: false (disabled)
+ * Default: true (enabled)
  */
 function isValidationEnabled(): boolean {
   const setting = getSetting('enableCitationValidation');
+  if (setting === null || setting === undefined || setting === '') return true;
   return setting === 'true' || setting === '1';
 }
 
@@ -175,12 +176,26 @@ export async function validateDois(dois: string[]): Promise<Map<string, Bibliogr
 }
 
 /**
- * Format inline citation with author and year
- * Input: "(DOI: 10.1038/xxx)" or "DOI: 10.1038/xxx"
- * Output: "(Kim et al., 2024; DOI: 10.1038/xxx)"
+ * Build citation link text as "FirstAuthor, Year, Title"
  */
-export function formatInlineCitation(bibInfo: BibliographicInfo): string {
-  return `(${bibInfo.authorShort}, ${bibInfo.year}; DOI: ${bibInfo.doi})`;
+function formatCitationLinkText(bibInfo: BibliographicInfo): string {
+  const firstAuthor = bibInfo.authors.length > 0 ? getLastName(bibInfo.authors[0]) : 'Unknown';
+  const year = bibInfo.year > 0 ? String(bibInfo.year) : 'n.d.';
+  const title = (bibInfo.title || 'Untitled').replace(/\s+/g, ' ').trim();
+
+  // Escape square brackets so markdown link labels stay valid.
+  const safeTitle = title.replace(/\[/g, '\\[').replace(/\]/g, '\\]');
+  return `${firstAuthor}, ${year}, ${safeTitle}`;
+}
+
+/**
+ * Format inline citation as a markdown DOI link.
+ * Example output: "([Smith, 2024, Paper Title](https://doi.org/10.xxxx/xxxxx))"
+ */
+function formatInlineCitationAsLink(bibInfo: BibliographicInfo): string {
+  const label = formatCitationLinkText(bibInfo);
+  const url = `https://doi.org/${encodeURIComponent(bibInfo.doi)}`;
+  return `([${label}](${url}))`;
 }
 
 /**
@@ -192,7 +207,7 @@ export async function processReportCitations(content: string): Promise<{
   validatedDois: Map<string, BibliographicInfo>;
   invalidDois: string[];
 }> {
-  // Check if validation is enabled (default: false)
+  // Check if validation is enabled (default: true)
   if (!isValidationEnabled()) {
     console.log('[CitationValidator] Validation disabled in settings, skipping DOI validation');
     return {
@@ -228,7 +243,7 @@ export async function processReportCitations(content: string): Promise<{
       const cleanDoi = doi.replace(/[.,;:!?)+]+$/, '').trim();
       const bibInfo = validatedDois.get(cleanDoi);
       if (bibInfo) {
-        return formatInlineCitation(bibInfo);
+        return formatInlineCitationAsLink(bibInfo);
       }
       // Keep original if not validated
       return match;
@@ -242,7 +257,8 @@ export async function processReportCitations(content: string): Promise<{
       const cleanDoi = doi.replace(/[.,;:!?)+]+$/, '').trim();
       const bibInfo = validatedDois.get(cleanDoi);
       if (bibInfo) {
-        return `[${bibInfo.authorShort}, ${bibInfo.year}](https://doi.org/${bibInfo.doi})`;
+        const label = formatCitationLinkText(bibInfo);
+        return `[${label}](https://doi.org/${encodeURIComponent(bibInfo.doi)})`;
       }
       return match;
     }
