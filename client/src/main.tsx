@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from '@/components/ui/toaster';
 import { SettingsDialog } from '@/components/settings-dialog';
 import { TitleBar } from '@/components/title-bar';
@@ -31,7 +31,7 @@ function AppWrapper({ children }: { children: React.ReactNode }) {
 // Root App component
 function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <AppWrapper>
         <div className="h-screen flex flex-col bg-background">
           {/* Draggable title bar */}
@@ -59,7 +59,7 @@ function App() {
           <Toaster />
         </div>
       </AppWrapper>
-    </BrowserRouter>
+    </HashRouter>
   );
 }
 
