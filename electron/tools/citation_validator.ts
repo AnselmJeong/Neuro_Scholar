@@ -86,6 +86,16 @@ function toDoiUrl(doi: string): string {
   return `https://doi.org/${encoded}`;
 }
 
+function formatCitationLinkTextFromFallback(fallback: ReferenceFallbackInfo): string {
+  const year = fallback.year && fallback.year > 0 ? String(fallback.year) : 'n.d.';
+  const authors = fallback.authors || [];
+  if (authors.length === 0) return `Unknown ${year}`;
+  const firstAuthor = getLastName(authors[0]);
+  if (authors.length === 1) return `${firstAuthor} ${year}`;
+  if (authors.length === 2) return `${firstAuthor} and ${getLastName(authors[1])} ${year}`;
+  return `${firstAuthor} et al. ${year}`;
+}
+
 export function extractDoisFromText(text: string): string[] {
   const found: string[] = [];
 
@@ -333,6 +343,56 @@ export async function processReportCitations(content: string): Promise<{
   return { processedContent, validatedDois, invalidDois };
 }
 
+export function filterAndFormatCitationsWithSourceDois(
+  content: string,
+  fallbackByDoi: Map<string, ReferenceFallbackInfo>,
+): { processedContent: string; citedDois: string[]; removedDois: string[] } {
+  const cited: string[] = [];
+  const removed: string[] = [];
+
+  let processedContent = content;
+  const citationPatterns = [
+    /\(DOI:\s*(10\.\d{4,}\/[^\s<>")\]]+)\)/gi,
+    /\[DOI:\s*(10\.\d{4,}\/[^\s<>")\]]+)\]/gi,
+    /\(\[DOI:\s*(10\.\d{4,}\/[^\s<>")\]]+)\]\)/gi,
+  ];
+
+  for (const pattern of citationPatterns) {
+    processedContent = processedContent.replace(pattern, (_match, doi) => {
+      const cleanDoi = normalizeDoi(doi);
+      const fallback = fallbackByDoi.get(cleanDoi);
+      if (!fallback) {
+        removed.push(cleanDoi);
+        return '';
+      }
+      cited.push(cleanDoi);
+      const label = formatCitationLinkTextFromFallback(fallback);
+      return `([${label}](${toDoiUrl(cleanDoi)}))`;
+    });
+  }
+
+  processedContent = processedContent.replace(
+    /\[DOI:\s*(10\.\d{4,}\/[^\]]+)\]\([^)]+\)/gi,
+    (_match, doi) => {
+      const cleanDoi = normalizeDoi(doi);
+      const fallback = fallbackByDoi.get(cleanDoi);
+      if (!fallback) {
+        removed.push(cleanDoi);
+        return '';
+      }
+      cited.push(cleanDoi);
+      const label = formatCitationLinkTextFromFallback(fallback);
+      return `[${label}](${toDoiUrl(cleanDoi)})`;
+    }
+  );
+
+  return {
+    processedContent,
+    citedDois: [...new Set(cited)],
+    removedDois: [...new Set(removed)],
+  };
+}
+
 /**
  * Generate formatted references section
  */
@@ -379,9 +439,11 @@ export function clearCache(): void {
 
 export default {
   extractDoisFromText,
+  filterAndFormatCitationsWithSourceDois,
   fetchBibliographicInfo,
   validateDois,
   processReportCitations,
+  normalizeDoi,
   generateReferencesSection,
   clearCache,
 };

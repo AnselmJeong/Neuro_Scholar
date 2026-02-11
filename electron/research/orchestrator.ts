@@ -3,9 +3,8 @@ import { getDb } from '../db';
 import { ollamaService } from '../ollama/service';
 import { AcademicSearchTool } from '../tools/academic_search';
 import {
-  processReportCitations,
+  filterAndFormatCitationsWithSourceDois,
   generateReferencesSection,
-  extractDoisFromText,
   normalizeDoi,
   ReferenceFallbackInfo,
 } from '../tools/citation_validator';
@@ -141,6 +140,29 @@ export class ResearchOrchestrator {
 
   constructor() {
     this.academicSearch = new AcademicSearchTool();
+  }
+
+  /**
+   * Remove any LLM-generated references/bibliography block from section text.
+   * The app generates a single canonical References section at the end.
+   */
+  private stripInlineReferencesBlock(text: string): string {
+    const lines = text.split('\n');
+    const markerIndex = lines.findIndex((line) => {
+      const t = line.trim().toLowerCase();
+      return (
+        t === 'references' ||
+        t === 'bibliography' ||
+        t === '참고문헌' ||
+        t === 'works cited' ||
+        t.startsWith('references:') ||
+        t.startsWith('bibliography:') ||
+        t.startsWith('참고문헌:')
+      );
+    });
+
+    if (markerIndex === -1) return text;
+    return lines.slice(0, markerIndex).join('\n').trim();
   }
 
   /**
@@ -515,6 +537,19 @@ CRITICAL INSTRUCTIONS:
 
     // Collect all sources and their DOIs for citation context
     const allSources = sectionResults.flatMap((s) => s.sources);
+
+    // If no verified search sources were found, do not produce a hallucinated citation report.
+    if (allSources.length === 0) {
+      const noSourcesReport = language === 'ko'
+        ? `## 보고서 생성 불가\n\n검색 단계에서 DOI가 확인된 문헌을 찾지 못해 보고서를 생성할 수 없습니다. 검색 질의어를 더 구체화하거나 범위를 넓혀 다시 시도하세요.\n`
+        : `## Report Unavailable\n\nNo DOI-verified sources were found during search, so a report cannot be generated safely. Please refine or broaden the query and try again.\n`;
+      reportContent = noSourcesReport;
+      this.sendUpdate({ event_type: 'report_chunk', data: { chunk: noSourcesReport, final: true } });
+      this.activeSession!.reportContent = reportContent;
+      this.activeSession!.sources = [];
+      return;
+    }
+
     const sourceDoiContext = allSources
       .map(s => `${s.doi}: ${s.authors.join(', ')} (${s.year}) - ${s.title}`)
       .join('\n');
@@ -553,7 +588,9 @@ IMPORTANT: Only use DOIs from the list above. Do not fabricate DOIs.`;
     const summaryResponse = await ollamaService.chat({ model, messages: summaryMessages });
     const summaryTitle = language === 'ko' ? '## 요약' : '## Executive Summary';
     // Strip any markdown headers from summary content to prevent duplication
-    const cleanSummary = summaryResponse.content.replace(/^##?\s+.+$/gm, '').trim();
+    const cleanSummary = this.stripInlineReferencesBlock(
+      summaryResponse.content.replace(/^##?\s+.+$/gm, '').trim()
+    );
     reportContent += `${summaryTitle}\n\n${cleanSummary}\n\n`;
 
     this.sendUpdate({ event_type: 'report_chunk', data: { chunk: reportContent } });
@@ -564,7 +601,9 @@ IMPORTANT: Only use DOIs from the list above. Do not fabricate DOIs.`;
       await this.checkPauseCancel();
 
       // Strip any markdown headers from section content to prevent duplication
-      const cleanContent = section.content.replace(/^##?\s+.+$/gm, '').trim();
+      const cleanContent = this.stripInlineReferencesBlock(
+        section.content.replace(/^##?\s+.+$/gm, '').trim()
+      );
       const sectionContent = `## ${section.title}\n\n${cleanContent}\n\n`;
       reportContent += sectionContent;
 
@@ -575,23 +614,10 @@ IMPORTANT: Only use DOIs from the list above. Do not fabricate DOIs.`;
     // === Citation Validation and Enhancement ===
     this.sendUpdate({
       event_type: 'status',
-      message: language === 'ko' ? 'DOI 검증 및 인용 정보 확인 중...' : 'Validating DOIs and enriching citations...'
+      message: language === 'ko' ? 'DOI 인용 정합성 확인 중...' : 'Validating DOI citations against searched sources...'
     });
 
     try {
-      const { processedContent, validatedDois, invalidDois } = await processReportCitations(reportContent);
-
-      // Log validation results
-      console.log(`[Research] Citation validation: ${validatedDois.size} valid, ${invalidDois.length} invalid`);
-      if (invalidDois.length > 0) {
-        console.log(`[Research] Invalid/hallucinated DOIs: ${invalidDois.join(', ')}`);
-      }
-
-      // Use processed content with author/year added
-      reportContent = processedContent;
-
-      // Build references from DOIs actually cited in the report body.
-      const citedDois = extractDoisFromText(reportContent);
       const fallbackByDoi = new Map<string, ReferenceFallbackInfo>();
       for (const source of allSources) {
         const sourceDoi = normalizeDoi(source.doi);
@@ -605,25 +631,32 @@ IMPORTANT: Only use DOIs from the list above. Do not fabricate DOIs.`;
         }
       }
 
+      const {
+        processedContent,
+        citedDois,
+        removedDois,
+      } = filterAndFormatCitationsWithSourceDois(reportContent, fallbackByDoi);
+      reportContent = processedContent;
+
+      if (removedDois.length > 0) {
+        console.log(`[Research] Removed hallucinated/non-source DOIs: ${removedDois.join(', ')}`);
+      }
+
       const referencesSection = generateReferencesSection(
         citedDois,
-        validatedDois,
+        new Map(),
         fallbackByDoi,
         language
       );
       reportContent += referencesSection;
       this.sendUpdate({ event_type: 'report_chunk', data: { chunk: referencesSection, final: true } });
 
-      // Store validation metadata
-      this.activeSession!.sources = allSources.map(s => ({
-        ...s,
-        validated: validatedDois.has(s.doi)
-      })) as AcademicSource[];
+      // Source list already constrained by search pipeline.
+      this.activeSession!.sources = allSources as AcademicSource[];
 
     } catch (error) {
       console.error('[Research] Citation validation error:', error);
-      // Fallback: still ensure all in-text DOI citations are listed in References.
-      const citedDois = extractDoisFromText(reportContent);
+      // Fallback: no synthetic validation calls; use source-only DOI normalization path.
       const fallbackByDoi = new Map<string, ReferenceFallbackInfo>();
       for (const source of allSources) {
         const sourceDoi = normalizeDoi(source.doi);
@@ -636,6 +669,8 @@ IMPORTANT: Only use DOIs from the list above. Do not fabricate DOIs.`;
           });
         }
       }
+      const { processedContent, citedDois } = filterAndFormatCitationsWithSourceDois(reportContent, fallbackByDoi);
+      reportContent = processedContent;
       const referencesContent = generateReferencesSection(citedDois, new Map(), fallbackByDoi, language);
       reportContent += referencesContent;
       this.sendUpdate({ event_type: 'report_chunk', data: { chunk: referencesContent, final: true } });
