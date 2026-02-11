@@ -1,4 +1,4 @@
-import { app, dialog, BrowserWindow, ipcMain } from "electron";
+import { app, dialog, BrowserWindow, shell, ipcMain } from "electron";
 import * as path from "path";
 import * as dotenv from "dotenv";
 import Database from "better-sqlite3";
@@ -159,7 +159,10 @@ const ollamaService = {
     }
     try {
       const response = await client.list();
-      return response.models || [];
+      return (response.models || []).map((model) => ({
+        ...model,
+        modified_at: typeof model.modified_at === "string" ? model.modified_at : new Date(model.modified_at).toISOString()
+      }));
     } catch (error) {
       console.error("[OllamaService] Error fetching models:", error);
       return [];
@@ -444,7 +447,7 @@ function registerSettingsHandlers(ipcMain2) {
 const PUBMED_SEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi";
 const PUBMED_FETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi";
 const PUBMED_SUMMARY_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi";
-const DOI_REGEX = /10\.\d{4,}\/[^\s<>"]+/g;
+const DOI_REGEX$1 = /10\.\d{4,}\/[^\s<>"]+/g;
 class AcademicSearchTool {
   maxResults = 20;
   /**
@@ -593,7 +596,7 @@ class AcademicSearchTool {
         const title = item.title || item.name || "";
         const snippet = item.snippet || item.description || "";
         const url = item.url || item.link || "";
-        const doiMatches = (url + " " + snippet).match(DOI_REGEX);
+        const doiMatches = (url + " " + snippet).match(DOI_REGEX$1);
         const doi = doiMatches ? doiMatches[0] : "";
         if (!doi) continue;
         const yearMatch = snippet.match(/\b(19|20)\d{2}\b/);
@@ -633,9 +636,223 @@ class AcademicSearchTool {
    * Extract DOIs from text
    */
   extractDois(text) {
-    const matches = text.match(DOI_REGEX);
+    const matches = text.match(DOI_REGEX$1);
     return matches ? [...new Set(matches)] : [];
   }
+}
+const DOI_REGEX = /10\.\d{4,}\/[^\s<>")\]]+/g;
+const DOI_URL_REGEX = /https?:\/\/(?:dx\.)?doi\.org\/([^\s<>"')\]]+)/gi;
+const SEMANTIC_SCHOLAR_API = "https://api.semanticscholar.org/graph/v1/paper";
+const validationCache = /* @__PURE__ */ new Map();
+function getSemanticScholarApiKey() {
+  return getSetting("semanticScholarApiKey") || "";
+}
+function isValidationEnabled() {
+  const setting = getSetting("enableCitationValidation");
+  if (setting === null || setting === void 0 || setting === "") return true;
+  return setting === "true" || setting === "1";
+}
+function normalizeDoi(doi) {
+  let normalized = doi.trim();
+  normalized = normalized.replace(/\]\(https?:\/\/doi\.org\/[^)\s]+$/i, "").replace(/\]\(https?:\/\/dx\.doi\.org\/[^)\s]+$/i, "");
+  normalized = normalized.replace(/^doi:\s*/i, "").replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, "");
+  if (/%[0-9A-Fa-f]{2}/.test(normalized)) {
+    try {
+      normalized = decodeURIComponent(normalized);
+    } catch {
+    }
+  }
+  normalized = normalized.replace(/[.,;:!?)+\]]+$/, "").trim();
+  return normalized;
+}
+function toDoiUrl(doi) {
+  const encoded = encodeURIComponent(doi).replace(/%2F/gi, "/");
+  return `https://doi.org/${encoded}`;
+}
+function extractDoisFromText(text) {
+  const found = [];
+  const rawMatches = text.match(DOI_REGEX) || [];
+  for (const match of rawMatches) {
+    const doi = normalizeDoi(match);
+    if (doi) found.push(doi);
+  }
+  let urlMatch;
+  while ((urlMatch = DOI_URL_REGEX.exec(text)) !== null) {
+    const doi = normalizeDoi(urlMatch[1]);
+    if (doi) found.push(doi);
+  }
+  return [...new Set(found)];
+}
+async function fetchBibliographicInfo(doi) {
+  if (validationCache.has(doi)) {
+    return validationCache.get(doi);
+  }
+  try {
+    const fields = "title,authors,year,venue,externalIds";
+    let url = `${SEMANTIC_SCHOLAR_API}/DOI:${encodeURIComponent(doi)}?fields=${fields}`;
+    const headers = {
+      "Accept": "application/json"
+    };
+    const apiKey = getSemanticScholarApiKey();
+    if (apiKey) {
+      headers["x-api-key"] = apiKey;
+    }
+    const response = await fetch(url, { headers });
+    if (!response.ok) {
+      if (response.status === 404) {
+        console.log(`[CitationValidator] DOI not found in Semantic Scholar: ${doi}`);
+      } else {
+        console.error(`[CitationValidator] Semantic Scholar error ${response.status} for DOI: ${doi}`);
+      }
+      return null;
+    }
+    const data = await response.json();
+    const authors = (data.authors || []).map((a) => a.name || "").filter((name) => name.length > 0);
+    let authorShort = "";
+    if (authors.length === 0) {
+      authorShort = "Unknown";
+    } else if (authors.length === 1) {
+      authorShort = getLastName(authors[0]);
+    } else if (authors.length === 2) {
+      authorShort = `${getLastName(authors[0])} & ${getLastName(authors[1])}`;
+    } else {
+      authorShort = `${getLastName(authors[0])} et al.`;
+    }
+    const year = data.year || 0;
+    const journal = data.venue || "";
+    const bibInfo = {
+      doi,
+      title: data.title || "",
+      authors,
+      authorShort,
+      year,
+      journal,
+      url: toDoiUrl(doi),
+      isValid: true
+    };
+    validationCache.set(doi, bibInfo);
+    return bibInfo;
+  } catch (error) {
+    console.error(`[CitationValidator] Error fetching DOI ${doi}:`, error);
+    return null;
+  }
+}
+function getLastName(fullName) {
+  const parts = fullName.trim().split(/\s+/);
+  return parts[parts.length - 1];
+}
+async function validateDois(dois) {
+  const results = /* @__PURE__ */ new Map();
+  const batchSize = 5;
+  for (let i = 0; i < dois.length; i += batchSize) {
+    const batch = dois.slice(i, i + batchSize);
+    const promises = batch.map((doi) => fetchBibliographicInfo(doi));
+    const batchResults = await Promise.all(promises);
+    for (let j = 0; j < batch.length; j++) {
+      const result = batchResults[j];
+      if (result) {
+        results.set(batch[j], result);
+      }
+    }
+    if (i + batchSize < dois.length) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  return results;
+}
+function formatCitationLinkText(bibInfo) {
+  const year = bibInfo.year > 0 ? String(bibInfo.year) : "n.d.";
+  if (bibInfo.authors.length === 0) return `Unknown ${year}`;
+  const firstAuthor = getLastName(bibInfo.authors[0]);
+  if (bibInfo.authors.length === 1) {
+    return `${firstAuthor} ${year}`;
+  }
+  if (bibInfo.authors.length === 2) {
+    const secondAuthor = getLastName(bibInfo.authors[1]);
+    return `${firstAuthor} and ${secondAuthor} ${year}`;
+  }
+  return `${firstAuthor} et al. ${year}`;
+}
+function formatFallbackCitationLabel(doi) {
+  const compactDoi = doi.length > 35 ? `${doi.slice(0, 32)}...` : doi;
+  return compactDoi;
+}
+function formatInlineCitationAsLink(bibInfo) {
+  const label = formatCitationLinkText(bibInfo);
+  const url = toDoiUrl(bibInfo.doi);
+  return `([${label}](${url}))`;
+}
+function formatInlineDoiOnlyCitation(doi) {
+  const label = formatFallbackCitationLabel(doi);
+  const url = toDoiUrl(doi);
+  return `([${label}](${url}))`;
+}
+async function processReportCitations(content) {
+  if (!isValidationEnabled()) {
+    console.log("[CitationValidator] Validation disabled in settings, skipping DOI validation");
+    return {
+      processedContent: content,
+      validatedDois: /* @__PURE__ */ new Map(),
+      invalidDois: []
+    };
+  }
+  const dois = extractDoisFromText(content);
+  console.log(`[CitationValidator] Found ${dois.length} DOIs in content`);
+  const validatedDois = await validateDois(dois);
+  const invalidDois = dois.filter((doi) => !validatedDois.has(doi));
+  console.log(`[CitationValidator] Validated: ${validatedDois.size}, Invalid: ${invalidDois.length}`);
+  let processedContent = content;
+  const citationPatterns = [
+    /\(DOI:\s*(10\.\d{4,}\/[^\s<>")\]]+)\)/gi,
+    /\[DOI:\s*(10\.\d{4,}\/[^\s<>")\]]+)\]/gi,
+    /\(\[DOI:\s*(10\.\d{4,}\/[^\s<>")\]]+)\]\)/gi
+  ];
+  for (const pattern of citationPatterns) {
+    processedContent = processedContent.replace(pattern, (match, doi) => {
+      const cleanDoi = normalizeDoi(doi);
+      const bibInfo = validatedDois.get(cleanDoi);
+      if (bibInfo) {
+        return formatInlineCitationAsLink(bibInfo);
+      }
+      return formatInlineDoiOnlyCitation(cleanDoi);
+    });
+  }
+  processedContent = processedContent.replace(
+    /\[DOI:\s*(10\.\d{4,}\/[^\]]+)\]\([^)]+\)/gi,
+    (match, doi) => {
+      const cleanDoi = normalizeDoi(doi);
+      const bibInfo = validatedDois.get(cleanDoi);
+      if (bibInfo) {
+        const label = formatCitationLinkText(bibInfo);
+        return `[${label}](${toDoiUrl(bibInfo.doi)})`;
+      }
+      return formatInlineDoiOnlyCitation(cleanDoi);
+    }
+  );
+  return { processedContent, validatedDois, invalidDois };
+}
+function generateReferencesSection(citedDois, validatedDois, fallbackByDoi = /* @__PURE__ */ new Map(), language = "en") {
+  const title = language === "ko" ? "## 참고문헌" : "## References";
+  const uniqueCitedDois = [...new Set(citedDois)];
+  const refLines = uniqueCitedDois.map((rawDoi) => {
+    const doi = normalizeDoi(rawDoi);
+    const validated = validatedDois.get(doi);
+    if (validated) {
+      const authorsStr2 = validated.authors.length > 0 ? validated.authors.slice(0, 3).join(", ") + (validated.authors.length > 3 ? ", et al." : "") : "Unknown";
+      const yearStr2 = validated.year > 0 ? String(validated.year) : "n.d.";
+      return `- ${authorsStr2}. ${yearStr2}. ${validated.title || "Untitled"}. *${validated.journal || "Unknown Journal"}*. [DOI: ${validated.doi}](${toDoiUrl(validated.doi)})`;
+    }
+    const fallback = fallbackByDoi.get(doi);
+    const authorsStr = fallback?.authors && fallback.authors.length > 0 ? fallback.authors.slice(0, 3).join(", ") + (fallback.authors.length > 3 ? ", et al." : "") : "Unknown";
+    const yearStr = fallback?.year && fallback.year > 0 ? String(fallback.year) : "n.d.";
+    const titleStr = fallback?.title || "Untitled";
+    const journalStr = fallback?.journal || "Unknown Journal";
+    return `- ${authorsStr}. ${yearStr}. ${titleStr}. *${journalStr}*. [DOI: ${doi}](${toDoiUrl(doi)})`;
+  });
+  return `${title}
+
+${refLines.join("\n\n")}
+`;
 }
 const PLANNING_PROMPTS = {
   en: `You are an expert research planner specializing in psychiatry and neuroscience.
@@ -647,6 +864,7 @@ Requirements:
 3. Include sections for: Background/Context, Key Findings, Methodological Considerations, Clinical Implications
 4. Use professional academic terminology
 5. Aim for 4-6 focused sections
+6. IMPORTANT: Do NOT include "Executive Summary", "Summary", "Abstract", "References", or "Bibliography" sections - these are generated automatically
 
 Respond with a JSON object in this exact format:
 {
@@ -663,6 +881,8 @@ Respond with a JSON object in this exact format:
 3. 다음 섹션 포함: 배경/맥락, 주요 연구 결과, 방법론적 고려사항, 임상적 함의
 4. 전문적인 학술 용어 사용
 5. 4-6개의 집중된 섹션 목표
+6. 중요: "요약", "Executive Summary", "참고문헌", "References" 섹션은 포함하지 마세요 - 자동으로 생성됩니다
+7. CRITICAL: 섹션 제목과 설명을 반드시 한국어로 작성하세요
 
 다음 형식의 JSON 객체로 응답하세요:
 {
@@ -683,6 +903,13 @@ CRITICAL REQUIREMENTS:
 6. If sources contradict each other, acknowledge the controversy with both DOIs
 7. Focus on methodology quality and evidence strength
 8. Write in formal academic prose suitable for a review article
+9. CRITICAL: Do NOT include section titles, headers, or markdown formatting (##) in your response - write only the body content
+
+DOI ACCURACY (EXTREMELY IMPORTANT):
+- ONLY use DOIs that are explicitly provided in the source list
+- NEVER fabricate, guess, or modify DOIs
+- If unsure about a DOI, omit the citation rather than inventing one
+- Copy DOIs exactly as provided - character for character
 
 Example citation format:
 "Hippocampal volume reduction has been consistently observed in treatment-resistant depression (DOI: 10.1016/j.biopsych.2021.02.123), though the causal relationship remains unclear (DOI: 10.1038/s41593-2022-01234)."`,
@@ -697,10 +924,42 @@ Example citation format:
 6. 출처 간 상충하는 내용이 있으면 양쪽 DOI와 함께 논쟁점 인정
 7. 방법론의 질과 증거의 강도에 집중
 8. 리뷰 논문에 적합한 공식적인 학술 문체로 작성
-9. 한국어로 작성하되, DOI 형식과 학술 용어는 영어 유지
+9. CRITICAL: 보고서의 모든 본문을 반드시 한국어로 작성하세요 (Write all content in Korean)
+10. DOI, 논문 제목, 저자명은 원문(영어) 그대로 유지하세요
+11. CRITICAL: Do NOT include section titles, headers, or markdown formatting (##) in your response - write only the body content
+
+DOI 정확성 (매우 중요):
+- 반드시 출처 목록에 명시된 DOI만 사용하세요
+- DOI를 절대로 만들어내거나, 추측하거나, 수정하지 마세요
+- DOI가 확실하지 않으면 인용을 생략하세요
+- DOI를 글자 그대로 정확히 복사하세요
 
 인용 형식 예시:
-"치료 저항성 우울증에서 해마 용적 감소가 일관되게 관찰되었으나 (DOI: 10.1016/j.biopsych.2021.02.123), 인과관계는 아직 불명확하다 (DOI: 10.1038/s41593-2022-01234)."`
+"항우울제 치료와 관련하여 해마 부피 감소가 일관되게 관찰되었다 (DOI: 10.1016/j.biopsych.2021.02.123), 그러나 인과 관계는 여전히 불분명하다 (DOI: 10.1038/s41593-2022-01234)."`
+};
+const KEYWORD_PROMPTS = {
+  en: `You are an expert academic search specialist. Given a research section title and description, generate exactly 4 most important search keywords for finding relevant academic papers.
+
+Requirements:
+1. Select ONLY the 4 most critical keywords that best represent the core concepts
+2. Use scientific/medical terminology appropriate for Semantic Scholar searches
+3. Include specific technical terms, drug names, brain regions, or methodologies when relevant
+4. Return ONLY a comma-separated list of 4 keywords (no explanations, no bullet points)
+5. Prioritize precision over quantity - 4 carefully chosen keywords are better than many generic ones
+
+Example output format:
+neuroplasticity, structural MRI, depression treatment, BDNF`,
+  ko: `당신은 학술 검색 전문가입니다. 연구 섹션 제목과 설명이 주어지면, 관련 학술 논문을 찾기 위한 가장 중요한 4개의 검색 키워드를 생성하세요.
+
+요구사항:
+1. 핵심 개념을 가장 잘 대표하는 4개의 가장 중요한 키워드만 선택하세요
+2. Semantic Scholar 검색에 적합한 과학/의학 용어를 사용하세요
+3. 관련된 기술 용어, 약물명, 뇌 영역, 또는 방법론을 포함하세요
+4. 오직 쉼표로 구분된 4개 키워드 목록만 반환하세요 (설명 없음, 글머리 기호 없음)
+5. 양보다 질을 우선시하세요 - 여러 개의 일반적인 키워드보다 4개의 신중하게 선택된 키워드가 더 좋습니다
+
+출력 형식 예시:
+neuroplasticity, structural MRI, depression treatment, BDNF`
 };
 class ResearchOrchestrator {
   academicSearch;
@@ -855,10 +1114,41 @@ ${fileContext}`;
     return null;
   }
   /**
+   * Generate search keywords for a section using LLM
+   * Returns null if generation fails (for fallback handling)
+   */
+  async generateSearchKeywords(section, model, language = "en") {
+    try {
+      const messages = [
+        { role: "system", content: KEYWORD_PROMPTS[language] },
+        { role: "user", content: language === "ko" ? `섹션 제목: ${section.title}
+섹션 설명: ${section.description}
+
+이 주제로 학술 논문을 검색할 키워드를 생성하세요.` : `Section Title: ${section.title}
+Section Description: ${section.description}
+
+Generate search keywords for finding academic papers on this topic.` }
+      ];
+      const response = await ollamaService.chat({ model, messages });
+      const keywords = response.content.replace(/\n/g, ", ").replace(/\s+/g, " ").trim();
+      console.log(`[Research] Generated keywords for "${section.title}": ${keywords}`);
+      return keywords;
+    } catch (error) {
+      console.error(`[Research] Failed to generate keywords for "${section.title}":`, error);
+      return null;
+    }
+  }
+  /**
    * Research a single section
    */
   async researchSection(section, originalQuery, model, language = "en") {
-    const searchQuery = `${section.title} ${originalQuery} psychiatry neuroscience`;
+    this.sendUpdate({
+      event_type: "tool_start",
+      data: { tool: "keyword_generation", section: section.title }
+    });
+    const keywords = await this.generateSearchKeywords(section, model, language);
+    const searchTerms = keywords || `${section.title} ${section.description}`;
+    const searchQuery = searchTerms;
     this.sendUpdate({
       event_type: "tool_start",
       data: { tool: "academic_search", query: searchQuery }
@@ -889,6 +1179,7 @@ ${fileContext}`;
   Journal: ${s.journal} (${s.year})
   Abstract: ${s.abstract || "N/A"}`
     ).join("\n\n");
+    const doiList = sources.map((s) => s.doi).join(", ");
     const userPrompt = language === "ko" ? `학술 연구 보고서의 "${section.title}" 섹션을 작성하세요.
 
 섹션 초점: ${section.description}
@@ -896,14 +1187,28 @@ ${fileContext}`;
 사용 가능한 출처 (인라인 인용에 DOI 사용):
 ${sourcesContext}
 
-마크다운 형식으로 섹션 내용을 한국어로 작성하세요. 모든 주장에는 반드시 출처 DOI를 인라인으로 인용해야 합니다.` : `Write the "${section.title}" section for an academic research report.
+허용된 DOI 목록: ${doiList}
+
+CRITICAL INSTRUCTIONS (반드시 지켜야 함):
+1. ONLY use DOIs from the list above - 반드시 위 목록에 있는 DOI만 사용하세요
+2. Do NOT fabricate or modify DOIs - DOI를 만들어내거나 수정하지 마세요
+3. Citation format: (DOI: 10.xxxx/xxxxx) - 인용 형식 준수
+4. Every claim must cite its source DOI inline - 모든 주장은 인라인 DOI 인용 필요
+5. LANGUAGE: 반드시 한국어로 작성하세요 (Write in Korean only)
+6. 모든 본문 내용은 한국어로 작성하되, DOI와 논문 제목은 원문(영어) 그대로 유지하세요` : `Write the "${section.title}" section for an academic research report.
 
 Section Focus: ${section.description}
 
 Available Sources (use DOIs for inline citations):
 ${sourcesContext}
 
-Write the section content in Markdown. Every claim must cite its source DOI inline.`;
+Allowed DOI list: ${doiList}
+
+CRITICAL INSTRUCTIONS:
+1. ONLY use DOIs from the list above
+2. Do NOT fabricate or modify DOIs
+3. Citation format: (DOI: 10.xxxx/xxxxx)
+4. Every claim must cite its source DOI inline`;
     const messages = [
       { role: "system", content: SYNTHESIS_PROMPTS[language] },
       { role: "user", content: userPrompt }
@@ -915,62 +1220,125 @@ Write the section content in Markdown. Every claim must cite its source DOI inli
    * Synthesize final report
    */
   async synthesizeReport(query, sectionResults, model, language = "en") {
-    let reportContent = `# ${query}
-
-`;
+    let reportContent = "";
+    const excludedTitles = [
+      "executive summary",
+      "요약",
+      "summary",
+      "references",
+      "참고문헌",
+      "bibliography"
+    ];
+    const filteredSections = sectionResults.filter(
+      (s) => !excludedTitles.some((t) => s.title.toLowerCase().includes(t))
+    );
+    const allSources = sectionResults.flatMap((s) => s.sources);
+    const sourceDoiContext = allSources.map((s) => `${s.doi}: ${s.authors.join(", ")} (${s.year}) - ${s.title}`).join("\n");
     this.sendUpdate({ event_type: "status", message: language === "ko" ? "요약 작성 중..." : "Writing executive summary..." });
-    const summaryPrompt = language === "ko" ? `다음 주제에 대한 연구 보고서의 요약(2-3 문단)을 작성하세요: "${query}"
+    const summaryPrompt = language === "ko" ? `CRITICAL: Write an executive summary (2-3 paragraphs) in KOREAN (한국어로 작성하세요) for a research report on: "${query}"
 
 섹션별 주요 발견:
-${sectionResults.map((s) => `## ${s.title}
+${filteredSections.map((s) => `## ${s.title}
 ${s.content.slice(0, 500)}...`).join("\n\n")}
 
-가장 중요한 발견에 대해 DOI를 인라인으로 포함하세요. 한국어로 작성하세요.` : `Write an executive summary (2-3 paragraphs) for a research report on: "${query}"
+사용 가능한 DOI 목록 (반드시 이 목록의 DOI만 사용):
+${sourceDoiContext}
+
+CRITICAL INSTRUCTIONS:
+1. LANGUAGE: 반드시 한국어로 작성하세요 (Write in Korean only)
+2. Only use DOIs from the list above - 반드시 위 목록에 있는 DOI만 사용하세요
+3. Do not fabricate DOIs - DOI를 만들어내지 마세요` : `Write an executive summary (2-3 paragraphs) for a research report on: "${query}"
 
 Key findings from sections:
-${sectionResults.map((s) => `## ${s.title}
+${filteredSections.map((s) => `## ${s.title}
 ${s.content.slice(0, 500)}...`).join("\n\n")}
 
-Include key DOIs inline for the most important findings.`;
+Available DOIs (ONLY use DOIs from this list):
+${sourceDoiContext}
+
+IMPORTANT: Only use DOIs from the list above. Do not fabricate DOIs.`;
     const summaryMessages = [
       { role: "system", content: SYNTHESIS_PROMPTS[language] },
       { role: "user", content: summaryPrompt }
     ];
     const summaryResponse = await ollamaService.chat({ model, messages: summaryMessages });
     const summaryTitle = language === "ko" ? "## 요약" : "## Executive Summary";
+    const cleanSummary = summaryResponse.content.replace(/^##?\s+.+$/gm, "").trim();
     reportContent += `${summaryTitle}
 
-${summaryResponse.content}
+${cleanSummary}
 
 `;
     this.sendUpdate({ event_type: "report_chunk", data: { chunk: reportContent } });
     this.activeSession.reportContent = reportContent;
-    for (const section of sectionResults) {
+    for (const section of filteredSections) {
       await this.checkPauseCancel();
+      const cleanContent = section.content.replace(/^##?\s+.+$/gm, "").trim();
       const sectionContent = `## ${section.title}
 
-${section.content}
+${cleanContent}
 
 `;
       reportContent += sectionContent;
       this.sendUpdate({ event_type: "report_chunk", data: { chunk: sectionContent } });
       this.activeSession.reportContent = reportContent;
     }
-    const allSources = sectionResults.flatMap((s) => s.sources);
-    const uniqueDois = [...new Set(allSources.map((s) => s.doi))];
-    const referencesTitle = language === "ko" ? "## 참고문헌" : "## References";
-    reportContent += `${referencesTitle}
-
-`;
-    for (const doi of uniqueDois) {
-      const source = allSources.find((s) => s.doi === doi);
-      if (source) {
-        reportContent += `- ${source.title}. ${source.journal} (${source.year}). DOI: ${doi}
-`;
+    this.sendUpdate({
+      event_type: "status",
+      message: language === "ko" ? "DOI 검증 및 인용 정보 확인 중..." : "Validating DOIs and enriching citations..."
+    });
+    try {
+      const { processedContent, validatedDois, invalidDois } = await processReportCitations(reportContent);
+      console.log(`[Research] Citation validation: ${validatedDois.size} valid, ${invalidDois.length} invalid`);
+      if (invalidDois.length > 0) {
+        console.log(`[Research] Invalid/hallucinated DOIs: ${invalidDois.join(", ")}`);
       }
+      reportContent = processedContent;
+      const citedDois = extractDoisFromText(reportContent);
+      const fallbackByDoi = /* @__PURE__ */ new Map();
+      for (const source of allSources) {
+        const sourceDoi = normalizeDoi(source.doi);
+        if (!fallbackByDoi.has(sourceDoi)) {
+          fallbackByDoi.set(sourceDoi, {
+            authors: source.authors,
+            year: source.year,
+            title: source.title,
+            journal: source.journal
+          });
+        }
+      }
+      const referencesSection = generateReferencesSection(
+        citedDois,
+        validatedDois,
+        fallbackByDoi,
+        language
+      );
+      reportContent += referencesSection;
+      this.sendUpdate({ event_type: "report_chunk", data: { chunk: referencesSection, final: true } });
+      this.activeSession.sources = allSources.map((s) => ({
+        ...s,
+        validated: validatedDois.has(s.doi)
+      }));
+    } catch (error) {
+      console.error("[Research] Citation validation error:", error);
+      const citedDois = extractDoisFromText(reportContent);
+      const fallbackByDoi = /* @__PURE__ */ new Map();
+      for (const source of allSources) {
+        const sourceDoi = normalizeDoi(source.doi);
+        if (!fallbackByDoi.has(sourceDoi)) {
+          fallbackByDoi.set(sourceDoi, {
+            authors: source.authors,
+            year: source.year,
+            title: source.title,
+            journal: source.journal
+          });
+        }
+      }
+      const referencesContent = generateReferencesSection(citedDois, /* @__PURE__ */ new Map(), fallbackByDoi, language);
+      reportContent += referencesContent;
+      this.sendUpdate({ event_type: "report_chunk", data: { chunk: referencesContent, final: true } });
     }
     this.activeSession.reportContent = reportContent;
-    this.sendUpdate({ event_type: "report_chunk", data: { chunk: reportContent, final: true } });
   }
   /**
    * Generate chat title from query
@@ -1309,6 +1677,19 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
   }
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) {
+      shell.openExternal(url);
+      return { action: "deny" };
+    }
+    return { action: "allow" };
+  });
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (/^https?:\/\//i.test(url)) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
   mainWindow.on("closed", () => {
     mainWindow = null;
   });

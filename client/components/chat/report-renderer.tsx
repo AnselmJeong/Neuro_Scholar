@@ -32,6 +32,11 @@ interface Section {
 
 // Convert DOI references to clickable links
 function convertDoiToLinks(text: string): string {
+  // Avoid double-transforming already-markdown DOI links.
+  if (text.includes('](https://doi.org/')) {
+    return text;
+  }
+
   // Match patterns like (DOI: 10.xxxx/xxxxx) or DOI: 10.xxxx/xxxxx
   const doiPattern = /\(DOI:\s*(10\.[^\s\)]+)\)|DOI:\s*(10\.[^\s,\)]+)/gi;
   return text.replace(doiPattern, (match, doi1, doi2) => {

@@ -25,6 +25,7 @@ export interface ReferenceFallbackInfo {
 
 // DOI regex pattern
 const DOI_REGEX = /10\.\d{4,}\/[^\s<>")\]]+/g;
+const DOI_URL_REGEX = /https?:\/\/(?:dx\.)?doi\.org\/([^\s<>"')\]]+)/gi;
 
 // Semantic Scholar API base URL
 const SEMANTIC_SCHOLAR_API = 'https://api.semanticscholar.org/graph/v1/paper';
@@ -52,16 +53,55 @@ function isValidationEnabled(): boolean {
 /**
  * Extract all DOIs from text
  */
+export function normalizeDoi(doi: string): string {
+  let normalized = doi.trim();
+
+  // Handle markdown artifacts accidentally concatenated to DOI tokens
+  normalized = normalized
+    .replace(/\]\(https?:\/\/doi\.org\/[^)\s]+$/i, '')
+    .replace(/\]\(https?:\/\/dx\.doi\.org\/[^)\s]+$/i, '');
+
+  // Remove leading DOI prefixes or URL wrapper
+  normalized = normalized
+    .replace(/^doi:\s*/i, '')
+    .replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, '');
+
+  // Decode URL-encoded DOI parts when present
+  if (/%[0-9A-Fa-f]{2}/.test(normalized)) {
+    try {
+      normalized = decodeURIComponent(normalized);
+    } catch {
+      // Keep original on decode errors
+    }
+  }
+
+  // Trim common trailing punctuation and brackets
+  normalized = normalized.replace(/[.,;:!?)+\]]+$/, '').trim();
+  return normalized;
+}
+
+function toDoiUrl(doi: string): string {
+  // Keep DOI slash readable while encoding unsafe characters.
+  const encoded = encodeURIComponent(doi).replace(/%2F/gi, '/');
+  return `https://doi.org/${encoded}`;
+}
+
 export function extractDoisFromText(text: string): string[] {
-  const matches = text.match(DOI_REGEX);
-  if (!matches) return [];
+  const found: string[] = [];
 
-  // Clean DOIs - remove trailing punctuation that might be captured
-  const cleaned = matches.map(doi =>
-    doi.replace(/[.,;:!?)+]+$/, '').trim()
-  );
+  const rawMatches = text.match(DOI_REGEX) || [];
+  for (const match of rawMatches) {
+    const doi = normalizeDoi(match);
+    if (doi) found.push(doi);
+  }
 
-  return [...new Set(cleaned)];
+  let urlMatch: RegExpExecArray | null;
+  while ((urlMatch = DOI_URL_REGEX.exec(text)) !== null) {
+    const doi = normalizeDoi(urlMatch[1]);
+    if (doi) found.push(doi);
+  }
+
+  return [...new Set(found)];
 }
 
 /**
@@ -131,7 +171,7 @@ export async function fetchBibliographicInfo(doi: string): Promise<Bibliographic
       authorShort,
       year,
       journal,
-      url: `https://doi.org/${doi}`,
+      url: toDoiUrl(doi),
       isValid: true
     };
 
@@ -214,13 +254,13 @@ function formatFallbackCitationLabel(doi: string): string {
  */
 function formatInlineCitationAsLink(bibInfo: BibliographicInfo): string {
   const label = formatCitationLinkText(bibInfo);
-  const url = `https://doi.org/${encodeURIComponent(bibInfo.doi)}`;
+  const url = toDoiUrl(bibInfo.doi);
   return `([${label}](${url}))`;
 }
 
 function formatInlineDoiOnlyCitation(doi: string): string {
   const label = formatFallbackCitationLabel(doi);
-  const url = `https://doi.org/${encodeURIComponent(doi)}`;
+  const url = toDoiUrl(doi);
   return `([${label}](${url}))`;
 }
 
@@ -266,7 +306,7 @@ export async function processReportCitations(content: string): Promise<{
 
   for (const pattern of citationPatterns) {
     processedContent = processedContent.replace(pattern, (match, doi) => {
-      const cleanDoi = doi.replace(/[.,;:!?)+]+$/, '').trim();
+      const cleanDoi = normalizeDoi(doi);
       const bibInfo = validatedDois.get(cleanDoi);
       if (bibInfo) {
         return formatInlineCitationAsLink(bibInfo);
@@ -280,11 +320,11 @@ export async function processReportCitations(content: string): Promise<{
   processedContent = processedContent.replace(
     /\[DOI:\s*(10\.\d{4,}\/[^\]]+)\]\([^)]+\)/gi,
     (match, doi) => {
-      const cleanDoi = doi.replace(/[.,;:!?)+]+$/, '').trim();
+      const cleanDoi = normalizeDoi(doi);
       const bibInfo = validatedDois.get(cleanDoi);
       if (bibInfo) {
         const label = formatCitationLinkText(bibInfo);
-        return `[${label}](https://doi.org/${encodeURIComponent(bibInfo.doi)})`;
+        return `[${label}](${toDoiUrl(bibInfo.doi)})`;
       }
       return formatInlineDoiOnlyCitation(cleanDoi);
     }
@@ -306,14 +346,15 @@ export function generateReferencesSection(
 
   const uniqueCitedDois = [...new Set(citedDois)];
 
-  const refLines = uniqueCitedDois.map((doi) => {
+  const refLines = uniqueCitedDois.map((rawDoi) => {
+    const doi = normalizeDoi(rawDoi);
     const validated = validatedDois.get(doi);
     if (validated) {
       const authorsStr = validated.authors.length > 0
         ? validated.authors.slice(0, 3).join(', ') + (validated.authors.length > 3 ? ', et al.' : '')
         : 'Unknown';
       const yearStr = validated.year > 0 ? String(validated.year) : 'n.d.';
-      return `- ${authorsStr}. ${yearStr}. ${validated.title || 'Untitled'}. *${validated.journal || 'Unknown Journal'}*. [DOI: ${validated.doi}](https://doi.org/${encodeURIComponent(validated.doi)})`;
+      return `- ${authorsStr}. ${yearStr}. ${validated.title || 'Untitled'}. *${validated.journal || 'Unknown Journal'}*. [DOI: ${validated.doi}](${toDoiUrl(validated.doi)})`;
     }
 
     const fallback = fallbackByDoi.get(doi);
@@ -323,7 +364,7 @@ export function generateReferencesSection(
     const yearStr = fallback?.year && fallback.year > 0 ? String(fallback.year) : 'n.d.';
     const titleStr = fallback?.title || 'Untitled';
     const journalStr = fallback?.journal || 'Unknown Journal';
-    return `- ${authorsStr}. ${yearStr}. ${titleStr}. *${journalStr}*. [DOI: ${doi}](https://doi.org/${encodeURIComponent(doi)})`;
+    return `- ${authorsStr}. ${yearStr}. ${titleStr}. *${journalStr}*. [DOI: ${doi}](${toDoiUrl(doi)})`;
   });
 
   return `${title}\n\n${refLines.join('\n\n')}\n`;

@@ -6,6 +6,7 @@ import {
   processReportCitations,
   generateReferencesSection,
   extractDoisFromText,
+  normalizeDoi,
   ReferenceFallbackInfo,
 } from '../tools/citation_validator';
 import {
@@ -593,8 +594,9 @@ IMPORTANT: Only use DOIs from the list above. Do not fabricate DOIs.`;
       const citedDois = extractDoisFromText(reportContent);
       const fallbackByDoi = new Map<string, ReferenceFallbackInfo>();
       for (const source of allSources) {
-        if (!fallbackByDoi.has(source.doi)) {
-          fallbackByDoi.set(source.doi, {
+        const sourceDoi = normalizeDoi(source.doi);
+        if (!fallbackByDoi.has(sourceDoi)) {
+          fallbackByDoi.set(sourceDoi, {
             authors: source.authors,
             year: source.year,
             title: source.title,
@@ -624,8 +626,9 @@ IMPORTANT: Only use DOIs from the list above. Do not fabricate DOIs.`;
       const citedDois = extractDoisFromText(reportContent);
       const fallbackByDoi = new Map<string, ReferenceFallbackInfo>();
       for (const source of allSources) {
-        if (!fallbackByDoi.has(source.doi)) {
-          fallbackByDoi.set(source.doi, {
+        const sourceDoi = normalizeDoi(source.doi);
+        if (!fallbackByDoi.has(sourceDoi)) {
+          fallbackByDoi.set(sourceDoi, {
             authors: source.authors,
             year: source.year,
             title: source.title,
