@@ -15,6 +15,7 @@ export function useResearchEvents() {
     addQuery,
     addSource,
     addReportChunk,
+    replaceReportContent,
     updateResearchStatus,
     completeResearch,
     resetResearch,
@@ -80,6 +81,12 @@ export function useResearchEvents() {
           }
           break;
 
+        case 'report_replace':
+          if (update.data?.content) {
+            replaceReportContent(update.data.content);
+          }
+          break;
+
         case 'completed':
           completeResearch();
           toast('Your research report is ready.', 'success');
@@ -119,6 +126,7 @@ export function useResearchEvents() {
     addQuery,
     addSource,
     addReportChunk,
+    replaceReportContent,
     updateResearchStatus,
     completeResearch,
     resetResearch,

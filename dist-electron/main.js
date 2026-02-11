@@ -481,13 +481,50 @@ class AcademicSearchTool {
     return uniqueByDoi.slice(0, this.maxResults);
   }
   /**
-   * Search PubMed using E-utilities API
+   * Build tiered PubMed queries from keywords, progressively broadening.
+   * Tier 1: All keywords AND'd together (most specific)
+   * Tier 2: First keyword AND (remaining keywords OR'd) (balanced)
+   * Tier 3: All keywords OR'd together (broadest)
+   */
+  buildTieredQueries(keywords) {
+    if (keywords.length === 0) return [];
+    if (keywords.length === 1) return [keywords[0]];
+    const quoted = keywords.map((k) => `(${k})`);
+    const queries = [];
+    queries.push(quoted.join(" AND "));
+    if (keywords.length > 2) {
+      const primary = quoted[0];
+      const rest = quoted.slice(1).join(" OR ");
+      queries.push(`${primary} AND (${rest})`);
+    }
+    queries.push(quoted.join(" OR "));
+    return queries;
+  }
+  /**
+   * Search PubMed using E-utilities API with tiered query broadening.
+   * Splits comma-separated keywords and tries progressively broader
+   * queries until results are found.
    */
   async searchPubMed(query) {
-    const enhancedQuery = `${query} AND (psychiatry[MeSH] OR neuroscience[MeSH] OR brain[MeSH])`;
+    const keywords = query.split(",").map((k) => k.trim()).filter(Boolean);
+    const queries = keywords.length > 1 ? this.buildTieredQueries(keywords) : [query];
+    for (const q of queries) {
+      console.log(`[AcademicSearch] PubMed trying query: ${q}`);
+      const results = await this.executePubMedSearch(q);
+      if (results.length > 0) {
+        console.log(`[AcademicSearch] PubMed got ${results.length} results with query: ${q}`);
+        return results;
+      }
+    }
+    return [];
+  }
+  /**
+   * Execute a single PubMed search query and return parsed results.
+   */
+  async executePubMedSearch(query) {
     const searchUrl = new URL(PUBMED_SEARCH_URL);
     searchUrl.searchParams.set("db", "pubmed");
-    searchUrl.searchParams.set("term", enhancedQuery);
+    searchUrl.searchParams.set("term", query);
     searchUrl.searchParams.set("retmax", String(this.maxResults));
     searchUrl.searchParams.set("retmode", "json");
     searchUrl.searchParams.set("sort", "relevance");
@@ -587,7 +624,7 @@ class AcademicSearchTool {
    * Search Google Scholar via Ollama Cloud webSearch
    */
   async searchGoogleScholar(query) {
-    const scholarQuery = `site:scholar.google.com OR site:doi.org "${query}" psychiatry OR neuroscience research article`;
+    const scholarQuery = `${query} academic research paper`;
     try {
       const searchResult = await ollamaService.webSearch(scholarQuery);
       const results = [];
@@ -823,10 +860,11 @@ const KEYWORD_PROMPTS = {
 
 Requirements:
 1. Select ONLY the 4 most critical keywords that best represent the core concepts
-2. Use scientific/medical terminology appropriate for Semantic Scholar searches
-3. Include specific technical terms, drug names, brain regions, or methodologies when relevant
-4. Return ONLY a comma-separated list of 4 keywords (no explanations, no bullet points)
-5. Prioritize precision over quantity - 4 carefully chosen keywords are better than many generic ones
+2. Order keywords by importance — put the MOST IMPORTANT keyword first
+3. Use scientific/medical terminology appropriate for PubMed searches
+4. Include specific technical terms, drug names, brain regions, or methodologies when relevant
+5. Return ONLY a comma-separated list of 4 keywords (no explanations, no bullet points)
+6. Prioritize precision over quantity - 4 carefully chosen keywords are better than many generic ones
 
 Example output format:
 neuroplasticity, structural MRI, depression treatment, BDNF`,
@@ -834,10 +872,11 @@ neuroplasticity, structural MRI, depression treatment, BDNF`,
 
 요구사항:
 1. 핵심 개념을 가장 잘 대표하는 4개의 가장 중요한 키워드만 선택하세요
-2. Semantic Scholar 검색에 적합한 과학/의학 용어를 사용하세요
-3. 관련된 기술 용어, 약물명, 뇌 영역, 또는 방법론을 포함하세요
-4. 오직 쉼표로 구분된 4개 키워드 목록만 반환하세요 (설명 없음, 글머리 기호 없음)
-5. 양보다 질을 우선시하세요 - 여러 개의 일반적인 키워드보다 4개의 신중하게 선택된 키워드가 더 좋습니다
+2. 키워드를 중요도 순으로 정렬하세요 — 가장 중요한 키워드를 첫 번째에 놓으세요
+3. PubMed 검색에 적합한 과학/의학 용어를 사용하세요
+4. 관련된 기술 용어, 약물명, 뇌 영역, 또는 방법론을 포함하세요
+5. 오직 쉼표로 구분된 4개 키워드 목록만 반환하세요 (설명 없음, 글머리 기호 없음)
+6. 양보다 질을 우선시하세요 - 여러 개의 일반적인 키워드보다 4개의 신중하게 선택된 키워드가 더 좋습니다
 
 출력 형식 예시:
 neuroplasticity, structural MRI, depression treatment, BDNF`
@@ -1228,6 +1267,7 @@ ${cleanContent}
         language
       );
       reportContent += referencesSection;
+      this.sendUpdate({ event_type: "report_replace", data: { content: reportContent } });
       this.sendUpdate({ event_type: "report_chunk", data: { chunk: referencesSection, final: true } });
       this.activeSession.sources = allSources;
     } catch (error) {
@@ -1248,6 +1288,7 @@ ${cleanContent}
       reportContent = processedContent;
       const referencesContent = generateReferencesSection(citedDois, /* @__PURE__ */ new Map(), fallbackByDoi, language);
       reportContent += referencesContent;
+      this.sendUpdate({ event_type: "report_replace", data: { content: reportContent } });
       this.sendUpdate({ event_type: "report_chunk", data: { chunk: referencesContent, final: true } });
     }
     this.activeSession.reportContent = reportContent;

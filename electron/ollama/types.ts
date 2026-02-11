@@ -117,6 +117,7 @@ export interface ResearchUpdate {
     | 'tool_start'
     | 'source_found'
     | 'report_chunk'
+    | 'report_replace'
     | 'completed'
     | 'error'
     | 'paused'

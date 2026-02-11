@@ -81,6 +81,7 @@ interface ChatState {
   addQuery: (query: string) => void;
   addSource: (source: ResearchSource) => void;
   addReportChunk: (chunk: string) => void;
+  replaceReportContent: (content: string) => void;
   completeResearch: () => void;
   resetResearch: () => void;
 }
@@ -281,6 +282,17 @@ export const useChatStore = create<ChatState>()(
               ...state.activeResearch,
               reportContent: state.activeResearch.reportContent + chunk,
               status: 'writing',
+            },
+          };
+        }),
+
+      replaceReportContent: (content: string) =>
+        set((state) => {
+          if (!state.activeResearch) return {};
+          return {
+            activeResearch: {
+              ...state.activeResearch,
+              reportContent: content,
             },
           };
         }),

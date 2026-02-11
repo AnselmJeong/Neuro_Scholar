@@ -112,10 +112,11 @@ const KEYWORD_PROMPTS: Record<ReportLanguage, string> = {
 
 Requirements:
 1. Select ONLY the 4 most critical keywords that best represent the core concepts
-2. Use scientific/medical terminology appropriate for Semantic Scholar searches
-3. Include specific technical terms, drug names, brain regions, or methodologies when relevant
-4. Return ONLY a comma-separated list of 4 keywords (no explanations, no bullet points)
-5. Prioritize precision over quantity - 4 carefully chosen keywords are better than many generic ones
+2. Order keywords by importance — put the MOST IMPORTANT keyword first
+3. Use scientific/medical terminology appropriate for PubMed searches
+4. Include specific technical terms, drug names, brain regions, or methodologies when relevant
+5. Return ONLY a comma-separated list of 4 keywords (no explanations, no bullet points)
+6. Prioritize precision over quantity - 4 carefully chosen keywords are better than many generic ones
 
 Example output format:
 neuroplasticity, structural MRI, depression treatment, BDNF`,
@@ -123,10 +124,11 @@ neuroplasticity, structural MRI, depression treatment, BDNF`,
 
 요구사항:
 1. 핵심 개념을 가장 잘 대표하는 4개의 가장 중요한 키워드만 선택하세요
-2. Semantic Scholar 검색에 적합한 과학/의학 용어를 사용하세요
-3. 관련된 기술 용어, 약물명, 뇌 영역, 또는 방법론을 포함하세요
-4. 오직 쉼표로 구분된 4개 키워드 목록만 반환하세요 (설명 없음, 글머리 기호 없음)
-5. 양보다 질을 우선시하세요 - 여러 개의 일반적인 키워드보다 4개의 신중하게 선택된 키워드가 더 좋습니다
+2. 키워드를 중요도 순으로 정렬하세요 — 가장 중요한 키워드를 첫 번째에 놓으세요
+3. PubMed 검색에 적합한 과학/의학 용어를 사용하세요
+4. 관련된 기술 용어, 약물명, 뇌 영역, 또는 방법론을 포함하세요
+5. 오직 쉼표로 구분된 4개 키워드 목록만 반환하세요 (설명 없음, 글머리 기호 없음)
+6. 양보다 질을 우선시하세요 - 여러 개의 일반적인 키워드보다 4개의 신중하게 선택된 키워드가 더 좋습니다
 
 출력 형식 예시:
 neuroplasticity, structural MRI, depression treatment, BDNF`,
@@ -649,6 +651,8 @@ IMPORTANT: Only use DOIs from the list above. Do not fabricate DOIs.`;
         language
       );
       reportContent += referencesSection;
+      // Send the entire processed report to replace the raw-DOI accumulated chunks on the client
+      this.sendUpdate({ event_type: 'report_replace', data: { content: reportContent } });
       this.sendUpdate({ event_type: 'report_chunk', data: { chunk: referencesSection, final: true } });
 
       // Source list already constrained by search pipeline.
@@ -673,6 +677,8 @@ IMPORTANT: Only use DOIs from the list above. Do not fabricate DOIs.`;
       reportContent = processedContent;
       const referencesContent = generateReferencesSection(citedDois, new Map(), fallbackByDoi, language);
       reportContent += referencesContent;
+      // Send the entire processed report to replace the raw-DOI accumulated chunks on the client
+      this.sendUpdate({ event_type: 'report_replace', data: { content: reportContent } });
       this.sendUpdate({ event_type: 'report_chunk', data: { chunk: referencesContent, final: true } });
     }
 

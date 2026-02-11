@@ -53,16 +53,68 @@ export class AcademicSearchTool {
   }
 
   /**
-   * Search PubMed using E-utilities API
+   * Build tiered PubMed queries from keywords, progressively broadening.
+   * Tier 1: All keywords AND'd together (most specific)
+   * Tier 2: First keyword AND (remaining keywords OR'd) (balanced)
+   * Tier 3: All keywords OR'd together (broadest)
+   */
+  private buildTieredQueries(keywords: string[]): string[] {
+    if (keywords.length === 0) return [];
+    if (keywords.length === 1) return [keywords[0]];
+
+    const quoted = keywords.map((k) => `(${k})`);
+    const queries: string[] = [];
+
+    // Tier 1: All AND
+    queries.push(quoted.join(' AND '));
+
+    // Tier 2: First keyword AND (rest OR'd)
+    if (keywords.length > 2) {
+      const primary = quoted[0];
+      const rest = quoted.slice(1).join(' OR ');
+      queries.push(`${primary} AND (${rest})`);
+    }
+
+    // Tier 3: All OR
+    queries.push(quoted.join(' OR '));
+
+    return queries;
+  }
+
+  /**
+   * Search PubMed using E-utilities API with tiered query broadening.
+   * Splits comma-separated keywords and tries progressively broader
+   * queries until results are found.
    */
   private async searchPubMed(query: string): Promise<AcademicSource[]> {
-    // Add psychiatry/neuroscience context to query
-    const enhancedQuery = `${query} AND (psychiatry[MeSH] OR neuroscience[MeSH] OR brain[MeSH])`;
+    // Split comma-separated keywords into individual terms
+    const keywords = query
+      .split(',')
+      .map((k) => k.trim())
+      .filter(Boolean);
 
+    const queries = keywords.length > 1 ? this.buildTieredQueries(keywords) : [query];
+
+    for (const q of queries) {
+      console.log(`[AcademicSearch] PubMed trying query: ${q}`);
+      const results = await this.executePubMedSearch(q);
+      if (results.length > 0) {
+        console.log(`[AcademicSearch] PubMed got ${results.length} results with query: ${q}`);
+        return results;
+      }
+    }
+
+    return [];
+  }
+
+  /**
+   * Execute a single PubMed search query and return parsed results.
+   */
+  private async executePubMedSearch(query: string): Promise<AcademicSource[]> {
     // Step 1: Search for PMIDs
     const searchUrl = new URL(PUBMED_SEARCH_URL);
     searchUrl.searchParams.set('db', 'pubmed');
-    searchUrl.searchParams.set('term', enhancedQuery);
+    searchUrl.searchParams.set('term', query);
     searchUrl.searchParams.set('retmax', String(this.maxResults));
     searchUrl.searchParams.set('retmode', 'json');
     searchUrl.searchParams.set('sort', 'relevance');
@@ -196,8 +248,8 @@ export class AcademicSearchTool {
    * Search Google Scholar via Ollama Cloud webSearch
    */
   private async searchGoogleScholar(query: string): Promise<AcademicSource[]> {
-    // Construct a scholar-focused query
-    const scholarQuery = `site:scholar.google.com OR site:doi.org "${query}" psychiatry OR neuroscience research article`;
+    // Construct a scholar-focused query — use keywords directly without quoting the entire phrase
+    const scholarQuery = `${query} academic research paper`;
 
     try {
       const searchResult = await ollamaService.webSearch(scholarQuery);
