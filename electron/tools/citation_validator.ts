@@ -196,11 +196,26 @@ export async function fetchBibliographicInfo(doi: string): Promise<Bibliographic
 }
 
 /**
- * Extract last name from full name
+ * Extract last name from full name.
+ * Handles two common formats:
+ *  - PubMed style: "Kim J", "van der Berg AB" → last name is everything before trailing initials
+ *  - Standard style: "John Smith", "Jane A. Smith" → last name is the last multi-char word
  */
 function getLastName(fullName: string): string {
   const parts = fullName.trim().split(/\s+/);
-  return parts[parts.length - 1];
+  if (parts.length === 1) return parts[0];
+
+  // Detect PubMed-style: last part is 1-2 uppercase letters (initials)
+  const lastPart = parts[parts.length - 1];
+  if (/^[A-Z]{1,3}$/.test(lastPart)) {
+    // PubMed format: everything before the trailing initials is the last name
+    // e.g. "Kim J" → "Kim", "van der Berg AB" → "van der Berg"
+    const nameParts = parts.filter((p) => !/^[A-Z]{1,3}$/.test(p));
+    return nameParts.length > 0 ? nameParts.join(' ') : parts[0];
+  }
+
+  // Standard format: last word is the last name
+  return lastPart;
 }
 
 /**
@@ -373,6 +388,22 @@ export function filterAndFormatCitationsWithSourceDois(
 
   processedContent = processedContent.replace(
     /\[DOI:\s*(10\.\d{4,}\/[^\]]+)\]\([^)]+\)/gi,
+    (_match, doi) => {
+      const cleanDoi = normalizeDoi(doi);
+      const fallback = fallbackByDoi.get(cleanDoi);
+      if (!fallback) {
+        removed.push(cleanDoi);
+        return '';
+      }
+      cited.push(cleanDoi);
+      const label = formatCitationLinkTextFromFallback(fallback);
+      return `[${label}](${toDoiUrl(cleanDoi)})`;
+    }
+  );
+
+  // Handle plain DOI tokens not wrapped in []/(), e.g. "DOI: 10.xxxx/yyy; DOI: 10.aaaa/bbb"
+  processedContent = processedContent.replace(
+    /(?<!\[)DOI:\s*(10\.\d{4,}\/[^\s,;\)\]]+)/gi,
     (_match, doi) => {
       const cleanDoi = normalizeDoi(doi);
       const fallback = fallbackByDoi.get(cleanDoi);

@@ -653,7 +653,6 @@ IMPORTANT: Only use DOIs from the list above. Do not fabricate DOIs.`;
       reportContent += referencesSection;
       // Send the entire processed report to replace the raw-DOI accumulated chunks on the client
       this.sendUpdate({ event_type: 'report_replace', data: { content: reportContent } });
-      this.sendUpdate({ event_type: 'report_chunk', data: { chunk: referencesSection, final: true } });
 
       // Source list already constrained by search pipeline.
       this.activeSession!.sources = allSources as AcademicSource[];
@@ -679,7 +678,6 @@ IMPORTANT: Only use DOIs from the list above. Do not fabricate DOIs.`;
       reportContent += referencesContent;
       // Send the entire processed report to replace the raw-DOI accumulated chunks on the client
       this.sendUpdate({ event_type: 'report_replace', data: { content: reportContent } });
-      this.sendUpdate({ event_type: 'report_chunk', data: { chunk: referencesContent, final: true } });
     }
 
     this.activeSession!.reportContent = reportContent;

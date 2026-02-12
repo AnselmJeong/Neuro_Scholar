@@ -705,7 +705,13 @@ function formatCitationLinkTextFromFallback(fallback) {
 }
 function getLastName(fullName) {
   const parts = fullName.trim().split(/\s+/);
-  return parts[parts.length - 1];
+  if (parts.length === 1) return parts[0];
+  const lastPart = parts[parts.length - 1];
+  if (/^[A-Z]{1,3}$/.test(lastPart)) {
+    const nameParts = parts.filter((p) => !/^[A-Z]{1,3}$/.test(p));
+    return nameParts.length > 0 ? nameParts.join(" ") : parts[0];
+  }
+  return lastPart;
 }
 function filterAndFormatCitationsWithSourceDois(content, fallbackByDoi) {
   const cited = [];
@@ -731,6 +737,20 @@ function filterAndFormatCitationsWithSourceDois(content, fallbackByDoi) {
   }
   processedContent = processedContent.replace(
     /\[DOI:\s*(10\.\d{4,}\/[^\]]+)\]\([^)]+\)/gi,
+    (_match, doi) => {
+      const cleanDoi = normalizeDoi(doi);
+      const fallback = fallbackByDoi.get(cleanDoi);
+      if (!fallback) {
+        removed.push(cleanDoi);
+        return "";
+      }
+      cited.push(cleanDoi);
+      const label = formatCitationLinkTextFromFallback(fallback);
+      return `[${label}](${toDoiUrl(cleanDoi)})`;
+    }
+  );
+  processedContent = processedContent.replace(
+    /(?<!\[)DOI:\s*(10\.\d{4,}\/[^\s,;\)\]]+)/gi,
     (_match, doi) => {
       const cleanDoi = normalizeDoi(doi);
       const fallback = fallbackByDoi.get(cleanDoi);
@@ -1268,7 +1288,6 @@ ${cleanContent}
       );
       reportContent += referencesSection;
       this.sendUpdate({ event_type: "report_replace", data: { content: reportContent } });
-      this.sendUpdate({ event_type: "report_chunk", data: { chunk: referencesSection, final: true } });
       this.activeSession.sources = allSources;
     } catch (error) {
       console.error("[Research] Citation validation error:", error);
@@ -1289,7 +1308,6 @@ ${cleanContent}
       const referencesContent = generateReferencesSection(citedDois, /* @__PURE__ */ new Map(), fallbackByDoi, language);
       reportContent += referencesContent;
       this.sendUpdate({ event_type: "report_replace", data: { content: reportContent } });
-      this.sendUpdate({ event_type: "report_chunk", data: { chunk: referencesContent, final: true } });
     }
     this.activeSession.reportContent = reportContent;
   }

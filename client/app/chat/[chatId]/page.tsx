@@ -19,7 +19,6 @@ import {
 } from "@/components/ui/select";
 import { cn } from '@/lib/utils';
 
-import { useResearchEvents } from '@/hooks/use-research-events';
 import { StatusIndicator } from '@/components/chat/status-indicator';
 import { ProgressSteps } from '@/components/chat/progress-steps';
 import { SearchQueries } from '@/components/chat/search-queries';
@@ -35,9 +34,6 @@ export default function ChatPage() {
   const params = useParams();
   const chatId = params?.chatId as string;
   const { toast } = useToast();
-
-  // Initialize research event handler
-  useResearchEvents();
 
   const {
     selectedModel,
