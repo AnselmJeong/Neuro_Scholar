@@ -2,6 +2,7 @@ import React, { useMemo, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import { Link as LinkIcon, Maximize2, Download } from 'lucide-react';
+import JSZip from 'jszip';
 import { CodeExecutor } from '@/components/chat/code-executor';
 import { Dialog, DialogContent, DialogTrigger, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -86,19 +87,94 @@ function contentToMarkdown(content: string, title?: string): string {
   return markdown;
 }
 
+function sanitizeBaseFilename(title?: string): string {
+  const date = new Date().toISOString().split('T')[0];
+  const base = (title || 'research-report').trim() || 'research-report';
+  const safe = base
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase();
+  return `${safe || 'research-report'}-${date}`;
+}
+
+function escapeBibValue(value: string): string {
+  return value.replace(/[{}]/g, '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
+}
+
+function toBibtexKey(doi: string, index: number): string {
+  const normalized = doi.replace(/^https?:\/\/doi\.org\//i, '').replace(/^doi:\s*/i, '').trim();
+  const key = normalized.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return key ? `doi_${key}` : `ref_${index + 1}`;
+}
+
+function buildBibFromMarkdown(markdown: string): string {
+  const lines = markdown.split(/\r?\n/);
+  const headerIndex = lines.findIndex((line) => /^\s*##\s*(References|참고문헌)\s*$/i.test(line));
+  if (headerIndex === -1) return '';
+
+  const refLines: string[] = [];
+  for (let i = headerIndex + 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    if (/^\s*##\s+/.test(line)) break;
+    if (line.startsWith('- ')) refLines.push(line);
+  }
+
+  const entries: string[] = [];
+  refLines.forEach((line, index) => {
+    const doiMatch =
+      line.match(/\[DOI:\s*([^\]\s]+)\]/i) ||
+      line.match(/https?:\/\/doi\.org\/([^\s)\]]+)/i) ||
+      line.match(/\b(10\.\d{4,}\/[^\s,;\])]+)\b/i);
+
+    if (!doiMatch) return;
+
+    const doi = doiMatch[1].replace(/[).,;]+$/, '').trim();
+    const main = line.replace(/^-+\s*/, '').trim();
+    const segments = main.split(/\.\s+/).map((s) => s.trim()).filter(Boolean);
+    const authors = segments[0] || 'Unknown';
+    const yearMatch = main.match(/\b(19|20)\d{2}\b/);
+    const year = yearMatch ? yearMatch[0] : '';
+    const title = segments.length > 2 ? segments[2].replace(/\*+/g, '') : '';
+    const journalMatch = main.match(/\*([^*]+)\*/);
+    const journal = journalMatch ? journalMatch[1] : '';
+    const key = toBibtexKey(doi, index);
+
+    const fields: string[] = [];
+    fields.push(`  doi = "${escapeBibValue(doi)}"`);
+    if (title) fields.push(`  title = "${escapeBibValue(title)}"`);
+    if (authors && authors.toLowerCase() !== 'unknown') fields.push(`  author = "${escapeBibValue(authors)}"`);
+    if (journal) fields.push(`  journal = "${escapeBibValue(journal)}"`);
+    if (year) fields.push(`  year = "${year}"`);
+
+    entries.push(`@article{${key},\n${fields.join(',\n')}\n}`);
+  });
+
+  return entries.join('\n\n');
+}
+
 export function ReportRenderer({ content, showExport = false, title }: ReportRendererProps) {
   const sections = useMemo(() => parseXML(content), [content]);
 
   // Process content to convert DOI links
   const processedContent = useMemo(() => convertDoiToLinks(content), [content]);
 
-  const handleExport = useCallback(() => {
+  const handleExport = useCallback(async () => {
     const markdown = contentToMarkdown(content, title);
-    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+    const bib = buildBibFromMarkdown(markdown);
+    const baseFilename = sanitizeBaseFilename(title);
+
+    const zip = new JSZip();
+    zip.file(`${baseFilename}.md`, markdown);
+    zip.file(`${baseFilename}.bib`, bib || '% No references section found or DOI entries detected.');
+
+    const blob = await zip.generateAsync({ type: 'blob' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${title || 'research-report'}-${new Date().toISOString().split('T')[0]}.md`;
+    link.download = `${baseFilename}.zip`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -110,31 +186,23 @@ export function ReportRenderer({ content, showExport = false, title }: ReportRen
     // This might happen if the model outputs raw text before the first section
     return (
       <div>
-        {showExport && (
-          <div className="flex justify-end mb-4">
-            <Button variant="outline" size="sm" onClick={handleExport} className="gap-2">
-              <Download className="h-4 w-4" />
-              Export Markdown
-            </Button>
-          </div>
-        )}
         <div className="prose prose-zinc dark:prose-invert max-w-none text-foreground/90">
            <ReactMarkdown rehypePlugins={[rehypeRaw]}>{processedContent}</ReactMarkdown>
         </div>
+        {showExport && (
+          <div className="flex justify-end mt-6">
+            <Button variant="outline" size="sm" onClick={handleExport} className="gap-2">
+              <Download className="h-4 w-4" />
+              Export Report
+            </Button>
+          </div>
+        )}
       </div>
     );
   }
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      {showExport && sections.length > 0 && (
-        <div className="flex justify-end">
-          <Button variant="outline" size="sm" onClick={handleExport} className="gap-2">
-            <Download className="h-4 w-4" />
-            Export Markdown
-          </Button>
-        </div>
-      )}
       {sections.map((section, idx) => (
         <div key={idx} className="group">
           {section.title && (
@@ -223,6 +291,14 @@ export function ReportRenderer({ content, showExport = false, title }: ReportRen
           )}
         </div>
       ))}
+      {showExport && sections.length > 0 && (
+        <div className="flex justify-end pt-2">
+          <Button variant="outline" size="sm" onClick={handleExport} className="gap-2">
+            <Download className="h-4 w-4" />
+            Export Report
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

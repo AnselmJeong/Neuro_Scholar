@@ -32,6 +32,7 @@ Requirements:
 4. Use professional academic terminology
 5. Aim for 4-6 focused sections
 6. IMPORTANT: Do NOT include "Executive Summary", "Summary", "Abstract", "References", or "Bibliography" sections - these are generated automatically
+7. CRITICAL: Section titles and descriptions MUST be written in English only, regardless of the user's query language
 
 Respond with a JSON object in this exact format:
 {
@@ -72,6 +73,7 @@ CRITICAL REQUIREMENTS:
 7. Focus on methodology quality and evidence strength
 8. Write in formal academic prose suitable for a review article
 9. CRITICAL: Do NOT include section titles, headers, or markdown formatting (##) in your response - write only the body content
+10. CRITICAL: Write all narrative content in English only, regardless of the user's query language
 
 DOI ACCURACY (EXTREMELY IMPORTANT):
 - ONLY use DOIs that are explicitly provided in the source list
@@ -117,6 +119,7 @@ Requirements:
 4. Include specific technical terms, drug names, brain regions, or methodologies when relevant
 5. Return ONLY a comma-separated list of 4 keywords (no explanations, no bullet points)
 6. Prioritize precision over quantity - 4 carefully chosen keywords are better than many generic ones
+7. CRITICAL: Output keywords in English only, regardless of the query language
 
 Example output format:
 neuroplasticity, structural MRI, depression treatment, BDNF`,
@@ -144,24 +147,88 @@ export class ResearchOrchestrator {
     this.academicSearch = new AcademicSearchTool();
   }
 
+  private shouldEnforceLanguage(text: string, language: ReportLanguage): boolean {
+    if (!text || text.trim().length < 40) return false;
+
+    const cleaned = text
+      .replace(/\(DOI:\s*10\.[^)]+\)/gi, ' ')
+      .replace(/https?:\/\/doi\.org\/[^\s)\]]+/gi, ' ')
+      .replace(/\[[^\]]+\]\([^)]+\)/g, ' ')
+      .replace(/[`*_#>-]/g, ' ');
+
+    const hangulCount = (cleaned.match(/[가-힣]/g) || []).length;
+    const latinCount = (cleaned.match(/[A-Za-z]/g) || []).length;
+
+    if (language === 'en') {
+      return hangulCount >= 24 && hangulCount > latinCount * 0.2;
+    }
+
+    return (hangulCount === 0 && latinCount > 40) || (hangulCount < 20 && latinCount > 220);
+  }
+
+  private async enforceLanguageIfNeeded(
+    text: string,
+    language: ReportLanguage,
+    model: string,
+    kind: 'section' | 'summary' | 'title'
+  ): Promise<string> {
+    if (!this.shouldEnforceLanguage(text, language)) {
+      return text;
+    }
+
+    this.sendUpdate({
+      event_type: 'status',
+      message: language === 'ko'
+        ? '언어 설정(한국어)으로 출력 보정 중...'
+        : 'Normalizing output to selected language (English)...',
+    });
+
+    const target = language === 'ko' ? 'Korean' : 'English';
+    const scope = kind === 'title'
+      ? 'single section title'
+      : kind === 'summary'
+        ? 'executive summary'
+        : 'section body';
+
+    const messages: ChatMessage[] = [
+      {
+        role: 'system',
+        content: `You are a strict academic editor. Rewrite text into ${target} only while preserving meaning and citation fidelity.`,
+      },
+      {
+        role: 'user',
+        content: `Rewrite the following ${scope} in ${target} only.
+
+Rules:
+1. Preserve every DOI token exactly as-is (including punctuation and casing).
+2. Do not add or remove factual claims.
+3. Preserve markdown structure and inline citations.
+4. Keep paper titles and author names as originally written when appropriate.
+5. Output ONLY the rewritten text.
+
+Text:
+${text}`,
+      },
+    ];
+
+    try {
+      const response = await ollamaService.chat({ model, messages });
+      const normalized = response.content?.trim();
+      return normalized || text;
+    } catch (error) {
+      console.error('[Research] Language normalization failed:', error);
+      return text;
+    }
+  }
+
   /**
    * Remove any LLM-generated references/bibliography block from section text.
    * The app generates a single canonical References section at the end.
    */
   private stripInlineReferencesBlock(text: string): string {
     const lines = text.split('\n');
-    const markerIndex = lines.findIndex((line) => {
-      const t = line.trim().toLowerCase();
-      return (
-        t === 'references' ||
-        t === 'bibliography' ||
-        t === '참고문헌' ||
-        t === 'works cited' ||
-        t.startsWith('references:') ||
-        t.startsWith('bibliography:') ||
-        t.startsWith('참고문헌:')
-      );
-    });
+    const markerPattern = /^(?:#{1,6}\s*)?(?:\*\*)?\s*(references?|bibliography|works cited|참고문헌)\s*(?:\*\*)?\s*:?\s*$/i;
+    const markerIndex = lines.findIndex((line) => markerPattern.test(line.trim()));
 
     if (markerIndex === -1) return text;
     return lines.slice(0, markerIndex).join('\n').trim();
@@ -301,11 +368,6 @@ export class ResearchOrchestrator {
         sessionId
       );
 
-      this.sendUpdate({
-        event_type: 'completed',
-        data: { report_preview: this.activeSession!.reportContent.slice(0, 500) },
-      });
-
       // Save final report as message
       const reportMessageId = uuidv4();
       db.prepare(
@@ -321,6 +383,11 @@ export class ResearchOrchestrator {
 
       // Generate title
       await this.generateTitle(chatId, query, model);
+
+      this.sendUpdate({
+        event_type: 'completed',
+        data: { report_preview: this.activeSession!.reportContent.slice(0, 500) },
+      });
     } catch (error: any) {
       if (error.name === 'AbortError' || error.message === 'Research cancelled') {
         db.prepare('UPDATE research_sessions SET status = ?, updated_at = ? WHERE id = ?').run(
@@ -503,7 +570,8 @@ CRITICAL INSTRUCTIONS:
 1. ONLY use DOIs from the list above
 2. Do NOT fabricate or modify DOIs
 3. Citation format: (DOI: 10.xxxx/xxxxx)
-4. Every claim must cite its source DOI inline`;
+4. Every claim must cite its source DOI inline
+5. LANGUAGE: Write in English only, regardless of the user's query language`;
 
     const messages: ChatMessage[] = [
       { role: 'system', content: SYNTHESIS_PROMPTS[language] },
@@ -511,7 +579,7 @@ CRITICAL INSTRUCTIONS:
     ];
 
     const response = await ollamaService.chat({ model, messages });
-    return response.content;
+    return this.enforceLanguageIfNeeded(response.content, language, model, 'section');
   }
 
   /**
@@ -580,7 +648,9 @@ ${filteredSections.map((s) => `## ${s.title}\n${s.content.slice(0, 500)}...`).jo
 Available DOIs (ONLY use DOIs from this list):
 ${sourceDoiContext}
 
-IMPORTANT: Only use DOIs from the list above. Do not fabricate DOIs.`;
+IMPORTANT:
+1. Write in English only, regardless of the user's query language.
+2. Only use DOIs from the list above. Do not fabricate DOIs.`;
 
     const summaryMessages: ChatMessage[] = [
       { role: 'system', content: SYNTHESIS_PROMPTS[language] },
@@ -590,9 +660,8 @@ IMPORTANT: Only use DOIs from the list above. Do not fabricate DOIs.`;
     const summaryResponse = await ollamaService.chat({ model, messages: summaryMessages });
     const summaryTitle = language === 'ko' ? '## 요약' : '## Executive Summary';
     // Strip any markdown headers from summary content to prevent duplication
-    const cleanSummary = this.stripInlineReferencesBlock(
-      summaryResponse.content.replace(/^##?\s+.+$/gm, '').trim()
-    );
+    const normalizedSummary = await this.enforceLanguageIfNeeded(summaryResponse.content, language, model, 'summary');
+    const cleanSummary = this.stripInlineReferencesBlock(normalizedSummary.replace(/^##?\s+.+$/gm, '').trim());
     reportContent += `${summaryTitle}\n\n${cleanSummary}\n\n`;
 
     this.sendUpdate({ event_type: 'report_chunk', data: { chunk: reportContent } });
@@ -606,7 +675,8 @@ IMPORTANT: Only use DOIs from the list above. Do not fabricate DOIs.`;
       const cleanContent = this.stripInlineReferencesBlock(
         section.content.replace(/^##?\s+.+$/gm, '').trim()
       );
-      const sectionContent = `## ${section.title}\n\n${cleanContent}\n\n`;
+      const normalizedTitle = await this.enforceLanguageIfNeeded(section.title, language, model, 'title');
+      const sectionContent = `## ${normalizedTitle}\n\n${cleanContent}\n\n`;
       reportContent += sectionContent;
 
       this.sendUpdate({ event_type: 'report_chunk', data: { chunk: sectionContent } });

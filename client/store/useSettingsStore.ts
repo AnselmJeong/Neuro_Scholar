@@ -49,6 +49,14 @@ interface SettingsState {
   initialize: () => Promise<void>;
 }
 
+function isUsableChatModel(modelName: string): boolean {
+  const normalized = modelName.trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized.startsWith('x/')) return false;
+  if (normalized.includes('embedding')) return false;
+  return true;
+}
+
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
@@ -77,6 +85,10 @@ export const useSettingsStore = create<SettingsState>()(
 
       // Set selected model
       setSelectedModel: (model: string) => {
+        if (!isUsableChatModel(model)) {
+          console.warn(`[Settings] Ignored non-chat model selection: ${model}`);
+          return;
+        }
         set({ selectedModel: model });
         // Persist to main process
         settingsApi.set('selectedOllamaModel', model).catch(console.error);
@@ -87,7 +99,24 @@ export const useSettingsStore = create<SettingsState>()(
         set({ isLoadingModels: true });
         try {
           const models = await ollamaApi.getModels();
-          set({ availableModels: models, isLoadingModels: false });
+          const filteredModels = models.filter((model) => isUsableChatModel(model.name));
+          const currentSelected = get().selectedModel;
+          const hasCurrentInFiltered = filteredModels.some((model) => model.name === currentSelected);
+
+          const nextSelected =
+            hasCurrentInFiltered
+              ? currentSelected
+              : (filteredModels[0]?.name || currentSelected);
+
+          set({
+            availableModels: filteredModels,
+            selectedModel: nextSelected,
+            isLoadingModels: false,
+          });
+
+          if (nextSelected !== currentSelected) {
+            settingsApi.set('selectedOllamaModel', nextSelected).catch(console.error);
+          }
         } catch (error) {
           console.error('[Settings] Failed to fetch models:', error);
           set({ availableModels: [], isLoadingModels: false });

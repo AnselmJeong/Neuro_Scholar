@@ -8,7 +8,7 @@ import { researchApi, ollamaApi } from '@/lib/ipc';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import { Send, Bot, Loader2 } from 'lucide-react';
+import { Send, Bot, Loader2, Upload } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   Select,
@@ -37,6 +37,18 @@ export default function NewChatPage() {
 
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [draftChatId, setDraftChatId] = useState<string | null>(null);
+
+  const handlePrepareAttach = async () => {
+    if (draftChatId) return;
+    try {
+      const draft = await createChat(chatMode);
+      setDraftChatId(draft.id);
+    } catch (error) {
+      console.error('Failed to create draft chat for attachments', error);
+      toast('Failed to prepare attachment workspace.', 'error');
+    }
+  };
 
   const handleModelChange = (value: string) => {
     setSelectedModel(value);
@@ -59,13 +71,15 @@ export default function NewChatPage() {
     setSending(true);
 
     try {
-      // 1. Create a new chat
-      const newChat = await createChat(chatMode);
+      const targetChatId = draftChatId || (await createChat(chatMode)).id;
+      if (!draftChatId) {
+        setDraftChatId(targetChatId);
+      }
 
       if (chatMode === 'research') {
         // 2. Start research
         const sessionId = await researchApi.start({
-          chatId: newChat.id,
+          chatId: targetChatId,
           query: content,
           model: selectedModel,
           language: reportLanguage,
@@ -75,11 +89,11 @@ export default function NewChatPage() {
         startResearch(sessionId);
 
         // 4. Navigate to chat page
-        navigate(`/chat/${newChat.id}`);
+        navigate(`/chat/${targetChatId}`);
       } else {
         // Plain chat mode - just send a direct message
         // Save user message first
-        await useChatStore.getState().saveMessage(newChat.id, {
+        await useChatStore.getState().saveMessage(targetChatId, {
           role: 'user',
           content,
         });
@@ -91,12 +105,12 @@ export default function NewChatPage() {
         });
 
         // Save assistant response
-        await useChatStore.getState().saveMessage(newChat.id, {
+        await useChatStore.getState().saveMessage(targetChatId, {
           role: 'assistant',
           content: response.content,
         });
 
-        navigate(`/chat/${newChat.id}`);
+        navigate(`/chat/${targetChatId}`);
       }
     } catch (error: any) {
       console.error('Failed to create chat', error);
@@ -143,6 +157,16 @@ export default function NewChatPage() {
 
       <div className="p-4 bg-background border-t">
         <div className="max-w-3xl mx-auto">
+          <div className="mb-2">
+            {draftChatId ? (
+              <FileUpload chatId={draftChatId} />
+            ) : (
+              <Button variant="outline" size="sm" onClick={handlePrepareAttach} className="gap-2">
+                <Upload className="h-4 w-4" />
+                Attach File
+              </Button>
+            )}
+          </div>
           <form
             onSubmit={handleSubmit}
             className="relative rounded-xl border bg-background focus-within:ring-1 focus-within:ring-ring p-3 shadow-sm transition-all duration-200"
@@ -177,8 +201,8 @@ export default function NewChatPage() {
                         </SelectItem>
                       ))
                     ) : (
-                      <SelectItem value={selectedModel}>
-                        {selectedModel}
+                      <SelectItem value="no-eligible-models" disabled>
+                        No eligible chat models
                       </SelectItem>
                     )}
                   </SelectContent>

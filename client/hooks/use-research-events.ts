@@ -18,6 +18,8 @@ export function useResearchEvents() {
     replaceReportContent,
     updateResearchStatus,
     completeResearch,
+    fetchChats,
+    updateChat,
     resetResearch,
   } = useChatStore();
 
@@ -33,7 +35,11 @@ export function useResearchEvents() {
         case 'status':
           updateResearchStatus('thinking', update.message || 'Processing...');
           if (update.data?.title_generated) {
-            // Title was generated, could update UI
+            if (activeChatId) {
+              updateChat(activeChatId, { title: update.data.title_generated });
+            }
+            // Ensure sidebar list reflects DB order/title updates.
+            void fetchChats();
           }
           break;
 
@@ -88,7 +94,8 @@ export function useResearchEvents() {
           break;
 
         case 'completed':
-          completeResearch();
+          void completeResearch();
+          void fetchChats();
           toast('Your research report is ready.', 'success');
           break;
 
@@ -129,6 +136,8 @@ export function useResearchEvents() {
     replaceReportContent,
     updateResearchStatus,
     completeResearch,
+    fetchChats,
+    updateChat,
     resetResearch,
     toast,
   ]);

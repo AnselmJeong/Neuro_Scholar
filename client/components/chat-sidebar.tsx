@@ -5,15 +5,9 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useChatStore, Chat } from '@/store/useChatStore';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Plus, MessageSquare, MoreHorizontal, Pencil, Trash, X, Check, Search, Settings } from 'lucide-react';
+import { Plus, MessageSquare, Pencil, Trash, X, Check, Search, Settings } from 'lucide-react';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { cn } from '@/lib/utils';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -29,6 +23,12 @@ interface ChatSidebarProps {
   onSelect?: () => void;
 }
 
+interface ContextMenuState {
+  chatId: string;
+  x: number;
+  y: number;
+}
+
 export function ChatSidebar({ className, onSelect }: ChatSidebarProps) {
   const navigate = useNavigate();
   const params = useParams();
@@ -40,6 +40,7 @@ export function ChatSidebar({ className, onSelect }: ChatSidebarProps) {
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [deleteChatId, setDeleteChatId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   useEffect(() => {
     fetchChats();
@@ -67,13 +68,16 @@ export function ChatSidebar({ className, onSelect }: ChatSidebarProps) {
     e.stopPropagation();
     setEditingChatId(chat.id);
     setEditTitle(chat.title || "");
+    setContextMenu(null);
   };
 
   const handleRenameSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingChatId) return;
+    const nextTitle = editTitle.trim();
+    if (!nextTitle) return;
     try {
-      updateChat(editingChatId, { title: editTitle });
+      updateChat(editingChatId, { title: nextTitle });
       setEditingChatId(null);
     } catch (err) {
       console.error("Failed to rename chat", err);
@@ -83,6 +87,7 @@ export function ChatSidebar({ className, onSelect }: ChatSidebarProps) {
   const handleDeleteClick = (chatId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setDeleteChatId(chatId);
+    setContextMenu(null);
   };
 
   const confirmDelete = async () => {
@@ -107,8 +112,48 @@ export function ChatSidebar({ className, onSelect }: ChatSidebarProps) {
     );
   };
 
+  const handleContextMenu = (chat: Chat, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const menuWidth = 160;
+    const menuHeight = 92;
+    const maxX = Math.max(8, window.innerWidth - menuWidth - 8);
+    const maxY = Math.max(8, window.innerHeight - menuHeight - 8);
+    setContextMenu({
+      chatId: chat.id,
+      x: Math.min(e.clientX, maxX),
+      y: Math.min(e.clientY, maxY),
+    });
+  };
+
+  const openRenameFromContextMenu = () => {
+    if (!contextMenu) return;
+    const target = chats.find((c) => c.id === contextMenu.chatId);
+    if (!target) {
+      setContextMenu(null);
+      return;
+    }
+    setEditingChatId(target.id);
+    setEditTitle(target.title || "");
+    setContextMenu(null);
+  };
+
+  const openDeleteFromContextMenu = () => {
+    if (!contextMenu) return;
+    setDeleteChatId(contextMenu.chatId);
+    setContextMenu(null);
+  };
+
   return (
-    <div className={cn("h-full border-r bg-background flex flex-col", className)}>
+    <div
+      className={cn("h-full border-r bg-background flex flex-col", className)}
+      onClick={() => setContextMenu(null)}
+      onContextMenu={(e) => {
+        if ((e.target as HTMLElement).closest('[data-chat-row]')) return;
+        e.preventDefault();
+        setContextMenu(null);
+      }}
+    >
       {/* Top padding for macOS traffic lights */}
       <div className="h-12 shrink-0" />
 
@@ -125,15 +170,17 @@ export function ChatSidebar({ className, onSelect }: ChatSidebarProps) {
               {chats.map((chat) => (
                 <div
                   key={chat.id}
+                  data-chat-row
                   className={cn(
-                    "group flex items-center w-full gap-1 rounded-md px-2 py-1 hover:bg-accent/50",
+                    "group flex w-full items-center rounded-md px-2 py-1 hover:bg-accent/50",
                     activeChatId === chat.id ? "bg-accent" : "transparent"
                   )}
+                  onContextMenu={(e) => handleContextMenu(chat, e)}
                 >
                   {editingChatId === chat.id ? (
                     <form
                       onSubmit={handleRenameSubmit}
-                      className="flex-1 flex items-center gap-1"
+                      className="flex flex-1 items-center gap-1"
                     >
                       <Input
                         value={editTitle}
@@ -168,36 +215,16 @@ export function ChatSidebar({ className, onSelect }: ChatSidebarProps) {
                     <>
                       <Button
                         variant="ghost"
-                        className="flex-1 justify-start gap-2 font-normal truncate h-auto p-0 hover:bg-transparent min-w-0"
+                        className="flex-1 min-w-0 justify-start gap-2 font-normal h-auto p-0 hover:bg-transparent"
                         onClick={() => handleChatSelect(chat.id)}
                       >
                         {getModeIcon(chat.mode)}
-                        <span className="text-left flex-1 min-w-0">
-                          {(chat.title || "Untitled").length > 17
-                            ? (chat.title || "Untitled").substring(0, 17) + "..."
+                        <span className="block min-w-0 flex-1 truncate text-left" title={chat.title || "Untitled"}>
+                          {(chat.title || "Untitled").length > 24
+                            ? `${(chat.title || "Untitled").slice(0, 24)}...`
                             : (chat.title || "Untitled")}
                         </span>
                       </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-md hover:bg-accent text-foreground focus:outline-none focus:ring-2 focus:ring-ring z-10">
-                            <MoreHorizontal className="h-4 w-4" />
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onClick={(e) => handleRenameStart(chat, e)}
-                          >
-                            <Pencil className="mr-2 h-4 w-4" />
-                            Rename
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={(e) => handleDeleteClick(chat.id, e)}
-                            className="text-red-600 focus:text-red-600"
-                          >
-                            <Trash className="mr-2 h-4 w-4" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
                     </>
                   )}
                 </div>
@@ -238,6 +265,41 @@ export function ChatSidebar({ className, onSelect }: ChatSidebarProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {contextMenu && (
+        <div
+          className="fixed inset-0 z-50"
+          onClick={() => setContextMenu(null)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setContextMenu(null);
+          }}
+        >
+          <div
+            className="fixed z-50 min-w-[160px] rounded-xl border bg-popover p-1 shadow-lg"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
+              onClick={openRenameFromContextMenu}
+            >
+              <Pencil className="h-4 w-4" />
+              Rename
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-red-600 hover:bg-accent hover:text-red-700"
+              onClick={openDeleteFromContextMenu}
+            >
+              <Trash className="h-4 w-4" />
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

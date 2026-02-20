@@ -298,8 +298,8 @@ export default function ChatPage() {
                         </SelectItem>
                       ))
                     ) : (
-                      <SelectItem value={selectedModel}>
-                        {selectedModel}
+                      <SelectItem value="no-eligible-models" disabled>
+                        No eligible chat models
                       </SelectItem>
                     )}
                   </SelectContent>

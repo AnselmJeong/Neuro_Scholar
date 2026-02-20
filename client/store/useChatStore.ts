@@ -82,7 +82,7 @@ interface ChatState {
   addSource: (source: ResearchSource) => void;
   addReportChunk: (chunk: string) => void;
   replaceReportContent: (content: string) => void;
-  completeResearch: () => void;
+  completeResearch: () => Promise<void>;
   resetResearch: () => void;
 }
 
@@ -297,30 +297,18 @@ export const useChatStore = create<ChatState>()(
           };
         }),
 
-      completeResearch: () =>
+      completeResearch: async () => {
+        const chatId = get().activeChatId;
+
         set((state) => {
           if (!state.activeResearch) return {};
 
-          // Mark all steps complete
           const completedPlan = state.activeResearch.plan.map((s) => ({
             ...s,
             status: 'completed' as const,
           }));
 
-          // Create a message for the report
-          const reportMessage: Message = {
-            id: `report-${Date.now()}`,
-            chat_id: state.activeChatId || '',
-            role: 'assistant',
-            content: state.activeResearch.reportContent,
-            metadata: {
-              sources: state.activeResearch.sources,
-            },
-            created_at: new Date().toISOString(),
-          };
-
           return {
-            messages: [...state.messages, reportMessage],
             activeResearch: {
               ...state.activeResearch,
               isActive: false,
@@ -329,7 +317,12 @@ export const useChatStore = create<ChatState>()(
               plan: completedPlan,
             },
           };
-        }),
+        });
+
+        if (chatId) {
+          await get().fetchMessages(chatId);
+        }
+      },
 
       resetResearch: () => set({ activeResearch: null }),
     }),
